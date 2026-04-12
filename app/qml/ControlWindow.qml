@@ -12,255 +12,111 @@ ApplicationWindow {
     height: 800
     title: "Smart Mirror Pi"
     flags: Qt.Window | Qt.FramelessWindowHint
-    color: "#e8ddd2"
+    color: "#f2ece7"
 
     readonly property bool navigationLocked: recordingController.isRecording || recordingController.hasReview || recordingController.countdown > 0
-    readonly property string headerTitle: ({
-        "dashboard": "Studio Dashboard",
+    readonly property bool portraitMirror: settingsController.mirrorOrientationDegrees === 90 || settingsController.mirrorOrientationDegrees === 270
+    readonly property real cardWidth: Math.min(width * 0.82, 760)
+    readonly property real wideCardWidth: Math.min(width * 0.94, 1080)
+    readonly property real mediaCardWidth: Math.min(width * 0.94, 1180)
+    readonly property string pageTitle: ({
+        "dashboard": "Welcome to the Smart Choice!",
         "recording": "Record Your Look",
-        "gallery": "Look Gallery",
-        "player": "Playback Review",
+        "gallery": "Gallery",
+        "player": playbackService.primaryLabel.length > 0 ? playbackService.primaryLabel : "Look Review",
         "compare": "Compare Looks",
         "live_compare": "Live Compare",
-        "settings": "System Settings"
+        "settings": "Settings"
     })[appController.currentPage] || "Smart Mirror"
+    readonly property string pageSubtitle: ({
+        "dashboard": "Choose a workflow and keep the mirror black until you need visual output.",
+        "recording": recordingController.hasReview
+                     ? "Review the recorded clip locally before saving it."
+                     : (recordingController.isRecording
+                        ? "The mirror is active for capture preview."
+                        : "The mirror stays black until recording starts."),
+        "gallery": "Review saved looks, compare them side by side, or start live compare.",
+        "player": "Playback is active on the mirror while this local review stays on the control screen.",
+        "compare": "Side-by-side comparison with mirror-aware crop mode.",
+        "live_compare": "Compare a saved look with the current live preview.",
+        "settings": "Adjust screen assignment, mirror orientation, and camera backend preferences."
+    })[appController.currentPage] || ""
 
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#f4ede6" }
-            GradientStop { position: 0.55; color: "#e6d8ca" }
-            GradientStop { position: 1.0; color: "#dbc7b6" }
+            GradientStop { position: 0.0; color: "#f4ede7" }
+            GradientStop { position: 0.45; color: "#ece2d8" }
+            GradientStop { position: 1.0; color: "#f6f0eb" }
         }
     }
 
-    RowLayout {
+    Rectangle {
+        width: parent.width * 0.42
+        height: width
+        radius: width / 2
+        color: "#ffffff"
+        opacity: 0.16
+        x: -width * 0.18
+        y: -height * 0.14
+    }
+
+    Rectangle {
+        width: parent.width * 0.32
+        height: width
+        radius: width / 2
+        color: "#d8c4b0"
+        opacity: 0.18
+        x: parent.width - width * 0.72
+        y: parent.height - height * 0.74
+    }
+
+    Item {
         anchors.fill: parent
-        anchors.margins: 22
-        spacing: 22
 
-        Rectangle {
-            Layout.preferredWidth: 280
-            Layout.fillHeight: true
-            radius: 34
-            color: "#f7f1ea"
-            border.width: 1
-            border.color: "#e1d3c7"
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 24
-                spacing: 18
-
-                Text {
-                    text: "Atelier Mirror"
-                    color: "#46372c"
-                    font.family: "Noto Serif"
-                    font.pixelSize: 30
-                    font.weight: Font.DemiBold
-                }
-
-                Text {
-                    text: "Debian-first, two-screen Raspberry Pi control surface"
-                    color: "#7b6b5f"
-                    font.family: "Noto Sans"
-                    font.pixelSize: 14
-                    wrapMode: Text.WordWrap
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 24
-                    color: "#f0e3d6"
-                    border.width: 1
-                    border.color: "#deccb9"
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 16
-                        spacing: 8
-
-                        Text {
-                            text: "ACTIVE SESSION"
-                            color: "#7f6d5d"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            text: sessionController.activeSessionName
-                            color: "#44362c"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 22
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            text: sessionController.clipCount + " saved looks"
-                            color: "#7f6d5d"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 13
-                        }
-                    }
-                }
-
-                AppButton {
-                    Layout.fillWidth: true
-                    text: "Dashboard"
-                    enabled: !navigationLocked || appController.currentPage === "dashboard"
-                    onClicked: appController.showDashboard()
-                }
-
-                AppButton {
-                    Layout.fillWidth: true
-                    text: "Record"
-                    enabled: !navigationLocked || appController.currentPage === "recording"
-                    onClicked: appController.showRecording()
-                }
-
-                AppButton {
-                    Layout.fillWidth: true
-                    text: "Gallery"
-                    enabled: !navigationLocked || appController.currentPage === "gallery"
-                    onClicked: appController.showGallery()
-                }
-
-                AppButton {
-                    Layout.fillWidth: true
-                    text: "Settings"
-                    enabled: !navigationLocked || appController.currentPage === "settings"
-                    onClicked: appController.showSettings()
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 22
-                    color: "#1d1814"
-                    border.width: 1
-                    border.color: "#3a312b"
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 16
-                        spacing: 8
-
-                        Text {
-                            text: "MIRROR STATE"
-                            color: "#d2c6b9"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            text: mirrorDisplay.statusText
-                            color: "#f4ede6"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 20
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            text: "Mode: " + mirrorDisplay.mode
-                            color: "#c1b4a7"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 12
-                        }
-                    }
-                }
-
-                Item {
-                    Layout.fillHeight: true
-                }
-
-                AppButton {
-                    Layout.fillWidth: true
-                    text: "New Session"
-                    onClicked: sessionController.newSession("")
-                }
-
-                AppButton {
-                    Layout.fillWidth: true
-                    text: "Mirror Test"
-                    onClicked: settingsController.showMirrorTestPattern()
-                }
-            }
+        Loader {
+            id: pageLoader
+            anchors.fill: parent
+            sourceComponent: ({
+                "dashboard": dashboardPage,
+                "recording": recordingPage,
+                "gallery": galleryPage,
+                "player": playerPage,
+                "compare": comparePage,
+                "live_compare": liveComparePage,
+                "settings": settingsPage
+            })[appController.currentPage]
         }
 
         Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            radius: 38
-            color: "#f8f3ee"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 18
+            visible: appController.statusMessage.length > 0 || appController.errorMessage.length > 0
+            radius: 999
+            color: appController.errorMessage.length > 0 ? "#f7dbd6" : "#f1eae6"
             border.width: 1
-            border.color: "#e2d5ca"
+            border.color: appController.errorMessage.length > 0 ? "#d89d94" : "#e4ddd7"
+            width: Math.min(parent.width * 0.82, statusLabel.implicitWidth + 36)
+            height: statusLabel.implicitHeight + 18
+            z: 20
 
-            ColumnLayout {
+            Text {
+                id: statusLabel
+                anchors.centerIn: parent
+                text: appController.errorMessage.length > 0 ? appController.errorMessage : appController.statusMessage
+                color: appController.errorMessage.length > 0 ? "#7c2d26" : "#6b6661"
+                font.family: "Noto Sans"
+                font.pixelSize: 13
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                width: parent.width - 24
+            }
+
+            MouseArea {
                 anchors.fill: parent
-                anchors.margins: 26
-                spacing: 18
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-
-                        Text {
-                            text: headerTitle
-                            color: "#43352b"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 34
-                            font.weight: Font.DemiBold
-                        }
-
-                        Text {
-                            text: appController.statusMessage
-                            color: "#7b6a5c"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 14
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Rectangle {
-                        visible: appController.errorMessage.length > 0
-                        radius: 999
-                        color: "#f7dbd6"
-                        border.width: 1
-                        border.color: "#d89d94"
-                        width: errorLabel.implicitWidth + 26
-                        height: errorLabel.implicitHeight + 14
-
-                        Text {
-                            id: errorLabel
-                            anchors.centerIn: parent
-                            text: appController.errorMessage
-                            color: "#7c2d26"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 13
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: appController.clearError()
-                        }
-                    }
-                }
-
-                Loader {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    sourceComponent: ({
-                        "dashboard": dashboardPage,
-                        "recording": recordingPage,
-                        "gallery": galleryPage,
-                        "player": playerPage,
-                        "compare": comparePage,
-                        "live_compare": liveComparePage,
-                        "settings": settingsPage
-                    })[appController.currentPage]
-                }
+                enabled: appController.errorMessage.length > 0
+                onClicked: appController.clearError()
             }
         }
     }
@@ -268,196 +124,160 @@ ApplicationWindow {
     Component {
         id: dashboardPage
 
-        ColumnLayout {
+        Item {
             anchors.fill: parent
-            spacing: 18
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 18
+            ColumnLayout {
+                anchors.centerIn: parent
+                width: controlWindow.cardWidth
+                spacing: 14
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: controlWindow.pageTitle
+                    color: "#6b6661"
+                    font.family: "Noto Serif"
+                    font.pixelSize: 24
+                    font.weight: Font.Medium
+                    horizontalAlignment: Text.AlignHCenter
+                }
 
                 Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    radius: 30
-                    color: "#e8d9c9"
+                    Layout.alignment: Qt.AlignHCenter
+                    radius: 999
+                    color: "#f7f2ee"
                     border.width: 1
-                    border.color: "#d4c1ae"
+                    border.color: "#ebe0d7"
+                    width: Math.min(controlWindow.cardWidth, sessionName.implicitWidth + 110)
+                    height: sessionName.implicitHeight + 20
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 24
-                        spacing: 10
-
-                        Text {
-                            text: "Record new looks with the mirror black until the exact capture flow begins."
-                            color: "#4a392c"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 30
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            text: "Recording activates the mirror, stopping returns the output to a full black idle frame."
-                            color: "#735f50"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 15
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Item { Layout.fillHeight: true }
-
-                        RowLayout {
-                            spacing: 12
-                            AppButton {
-                                text: "Start Recording"
-                                onClicked: appController.showRecording()
-                            }
-                            AppButton {
-                                text: "Open Gallery"
-                                onClicked: appController.showGallery()
-                            }
-                        }
+                    Text {
+                        id: sessionName
+                        anchors.centerIn: parent
+                        text: sessionController.activeSessionName
+                        color: "#7b756f"
+                        font.family: "Noto Sans"
+                        font.pixelSize: 13
                     }
                 }
 
                 Rectangle {
-                    Layout.preferredWidth: 310
-                    Layout.fillHeight: true
+                    Layout.fillWidth: true
                     radius: 30
-                    color: "#201915"
+                    color: "#f7f2ee"
+                    border.width: 1
+                    border.color: "#ffffff"
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 22
-                        spacing: 12
+                        anchors.margins: 28
+                        spacing: 18
 
-                        Text {
-                            text: "OPERATIONAL STATUS"
-                            color: "#d4c7bb"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 12
+                        AppButton {
+                            Layout.fillWidth: true
+                            text: "Record Look"
+                            onClicked: appController.showRecording()
                         }
 
-                        Text {
-                            text: "Camera: " + settingsController.currentCameraBackendLabel
-                            color: "#fbf6f0"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 22
-                        }
-
-                        Text {
-                            text: settingsController.dependencySummary
-                            color: "#cbbeb1"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 13
-                            wrapMode: Text.WordWrap
+                        AppButton {
+                            Layout.fillWidth: true
+                            text: "Gallery"
+                            onClicked: appController.showGallery()
                         }
 
                         Rectangle {
                             Layout.fillWidth: true
-                            radius: 22
-                            color: "#2d251f"
+                            radius: 20
+                            color: "#f1eae6"
                             border.width: 1
-                            border.color: "#433831"
+                            border.color: "#e4ddd7"
 
                             ColumnLayout {
                                 anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 6
+                                anchors.margins: 6
+                                spacing: 8
 
                                 Text {
-                                    text: "DISPLAY ASSIGNMENT"
-                                    color: "#cbbeb1"
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "Mirror View: " + (controlWindow.portraitMirror ? "Portrait" : "Landscape") + " (" + settingsController.mirrorOrientationDegrees + "°)"
+                                    color: "#7a746e"
                                     font.family: "Noto Sans"
                                     font.pixelSize: 12
                                 }
 
-                                Text {
-                                    text: "Control screen: " + settingsController.controlScreenIndex
-                                    color: "#fbf6f0"
-                                    font.family: "Noto Serif"
-                                    font.pixelSize: 18
-                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
 
-                                Text {
-                                    text: "Mirror screen: " + settingsController.mirrorScreenIndex
-                                    color: "#fbf6f0"
-                                    font.family: "Noto Serif"
-                                    font.pixelSize: 18
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        height: 42
+                                        radius: 16
+                                        color: controlWindow.portraitMirror ? "#e7ddd6" : "transparent"
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "Portrait"
+                                            color: controlWindow.portraitMirror ? "#5e5650" : "#8a837e"
+                                            font.family: "Noto Sans"
+                                            font.pixelSize: 13
+                                            font.weight: Font.DemiBold
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            onClicked: settingsController.setMirrorOrientation(90)
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        height: 42
+                                        radius: 16
+                                        color: !controlWindow.portraitMirror ? "#e7ddd6" : "transparent"
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "Landscape"
+                                            color: !controlWindow.portraitMirror ? "#5e5650" : "#8a837e"
+                                            font.family: "Noto Sans"
+                                            font.pixelSize: 13
+                                            font.weight: Font.DemiBold
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            onClicked: settingsController.setMirrorOrientation(0)
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        Item { Layout.fillHeight: true }
-
-                        AppButton {
-                            Layout.fillWidth: true
-                            text: "Blackout Mirror"
-                            onClicked: settingsController.blackoutMirror()
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "Session ID: " + sessionController.activeSessionId
+                            color: "#6a6661"
+                            font.family: "Noto Sans"
+                            font.pixelSize: 12
+                            elide: Text.ElideMiddle
                         }
                     }
                 }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 220
-                radius: 30
-                color: "#f1e6db"
-                border.width: 1
-                border.color: "#ddcab8"
 
                 RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 20
-                    spacing: 16
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 12
 
-                    Repeater {
-                        model: [
-                            {
-                                "title": "Mirror rule",
-                                "body": "Boot, idle, and every workflow gap render as black on Display 2."
-                            },
-                            {
-                                "title": "Capture",
-                                "body": "Recordings start from a controlled countdown and land in SQLite-backed gallery records."
-                            },
-                            {
-                                "title": "Playback",
-                                "body": "Single playback, compare, and live compare all use the same persistent mirror window."
-                            }
-                        ]
+                    TextButton {
+                        text: "New Session"
+                        onClicked: sessionController.newSession("")
+                    }
 
-                        delegate: Rectangle {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            radius: 24
-                            color: "#faf5ef"
-                            border.width: 1
-                            border.color: "#eaded3"
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 18
-                                spacing: 8
-
-                                Text {
-                                    text: modelData.title
-                                    color: "#44362c"
-                                    font.family: "Noto Serif"
-                                    font.pixelSize: 22
-                                }
-
-                                Text {
-                                    text: modelData.body
-                                    color: "#78695c"
-                                    font.family: "Noto Sans"
-                                    font.pixelSize: 14
-                                    wrapMode: Text.WordWrap
-                                }
-                            }
-                        }
+                    TextButton {
+                        text: "Settings"
+                        enabled: !controlWindow.navigationLocked
+                        onClicked: appController.showSettings()
                     }
                 }
             }
@@ -467,138 +287,149 @@ ApplicationWindow {
     Component {
         id: recordingPage
 
-        RowLayout {
+        Item {
             anchors.fill: parent
-            spacing: 18
 
-            MediaSurface {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                primarySource: recordingController.hasReview ? recordingController.reviewSource : recordingController.previewSource
-                primaryLabel: recordingController.hasReview ? "Review" : (recordingController.isRecording ? "Live" : "Preview")
-                orientationDegrees: 0
-                showGuides: recordingController.isRecording
-                fillCrop: false
-            }
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
 
-            Rectangle {
-                Layout.preferredWidth: 330
-                Layout.fillHeight: true
-                radius: 30
-                color: "#efe1d3"
-                border.width: 1
-                border.color: "#d8c1ad"
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
+                    Layout.fillWidth: true
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 20
-                    spacing: 12
+                    ToolButton {
+                        text: "‹"
+                        enabled: !controlWindow.navigationLocked
+                        onClicked: appController.showDashboard()
+                    }
 
                     Text {
-                        text: "Capture"
-                        color: "#43352b"
+                        text: controlWindow.pageTitle
+                        color: "#6b6661"
                         font.family: "Noto Serif"
-                        font.pixelSize: 28
+                        font.pixelSize: 22
+                        font.weight: Font.Medium
                     }
 
-                    Text {
-                        text: recordingController.isRecording
-                              ? "Mirror is active for recording preview."
-                              : recordingController.hasReview
-                                ? "Mirror is black. Review locally, then save or discard."
-                                : "Mirror will stay black until recording starts."
-                        color: "#78695c"
-                        font.family: "Noto Sans"
-                        font.pixelSize: 14
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        radius: 24
-                        color: "#f7f0e9"
-                        border.width: 1
-                        border.color: "#e6d6c8"
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 16
-                            spacing: 6
-
-                            Text {
-                                text: "BACKEND"
-                                color: "#7b6b5f"
-                                font.family: "Noto Sans"
-                                font.pixelSize: 12
-                            }
-
-                            Text {
-                                text: recordingController.backendLabel
-                                color: "#45372d"
-                                font.family: "Noto Serif"
-                                font.pixelSize: 20
-                            }
-
-                            Text {
-                                text: recordingController.countdown > 0
-                                      ? "Countdown: " + recordingController.countdown
-                                      : (recordingController.isRecording ? "Elapsed: " + recordingController.elapsedText : "Ready")
-                                color: "#45372d"
-                                font.family: "Noto Serif"
-                                font.pixelSize: 18
-                            }
-                        }
-                    }
+                    Item { Layout.fillWidth: true }
 
                     RowLayout {
-                        spacing: 8
+                        spacing: 6
+
                         Repeater {
                             model: [0, 90, 180, 270]
-
                             delegate: AppButton {
                                 text: modelData + "°"
-                                enabled: !recordingController.isRecording
+                                implicitWidth: 72
+                                enabled: !recordingController.isRecording && !recordingController.isBusy
                                 onClicked: settingsController.setMirrorOrientation(modelData)
                             }
                         }
                     }
+                }
 
-                    Text {
-                        text: recordingController.errorMessage
-                        color: "#8f2d25"
-                        visible: recordingController.errorMessage.length > 0
-                        font.family: "Noto Sans"
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                    }
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: controlWindow.pageSubtitle
+                    color: "#7d756f"
+                    font.family: "Noto Sans"
+                    font.pixelSize: 13
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
+                }
 
-                    Item { Layout.fillHeight: true }
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
+                    radius: 30
+                    color: "#f7f2ee"
+                    border.width: 1
+                    border.color: "#ffffff"
 
-                    AppButton {
-                        Layout.fillWidth: true
-                        text: "Start Recording"
-                        enabled: !recordingController.isBusy && !recordingController.isRecording && !recordingController.hasReview
-                        onClicked: recordingController.beginRecording()
-                    }
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 22
+                        spacing: 18
 
-                    AppButton {
-                        Layout.fillWidth: true
-                        text: "Stop Recording"
-                        enabled: recordingController.isRecording && !recordingController.isBusy
-                        onClicked: recordingController.stopRecording()
-                    }
+                        MediaSurface {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            primarySource: recordingController.hasReview ? recordingController.reviewSource : recordingController.previewSource
+                            primaryLabel: recordingController.hasReview ? "Preview" : (recordingController.isRecording ? "Live" : "")
+                            orientationDegrees: 0
+                            showGuides: recordingController.isRecording
+                            fillCrop: false
+                        }
 
-                    AppButton {
-                        Layout.fillWidth: true
-                        text: "Save Recording"
-                        enabled: recordingController.hasReview && !recordingController.isBusy
-                        onClicked: recordingController.saveRecording()
-                    }
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            radius: 24
+                            color: "#f1eae6"
+                            border.width: 1
+                            border.color: "#e4ddd7"
+                            width: timerText.implicitWidth + 34
+                            height: timerText.implicitHeight + 14
 
-                    AppButton {
-                        Layout.fillWidth: true
-                        text: recordingController.hasReview ? "Discard Review" : "Cancel"
-                        onClicked: recordingController.discardRecording()
+                            Text {
+                                id: timerText
+                                anchors.centerIn: parent
+                                text: recordingController.countdown > 0
+                                      ? "Starting in " + recordingController.countdown
+                                      : (recordingController.isRecording
+                                         ? "Recording • " + recordingController.elapsedText
+                                         : (recordingController.hasReview ? "Review captured look" : "Ready to record"))
+                                color: recordingController.isRecording ? "#9e4b4b" : "#6b6661"
+                                font.family: "Noto Serif"
+                                font.pixelSize: 18
+                            }
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            visible: recordingController.errorMessage.length > 0
+                            text: recordingController.errorMessage
+                            color: "#9e4b4b"
+                            font.family: "Noto Sans"
+                            font.pixelSize: 13
+                            wrapMode: Text.WordWrap
+                            horizontalAlignment: Text.AlignHCenter
+                            Layout.maximumWidth: parent.width * 0.75
+                        }
+
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 12
+
+                            AppButton {
+                                text: "Start Recording"
+                                enabled: !recordingController.isBusy && !recordingController.isRecording && !recordingController.hasReview
+                                onClicked: recordingController.beginRecording()
+                            }
+
+                            AppButton {
+                                text: "Stop"
+                                enabled: recordingController.isRecording && !recordingController.isBusy
+                                onClicked: recordingController.stopRecording()
+                            }
+
+                            AppButton {
+                                text: "Save Video"
+                                enabled: recordingController.hasReview && !recordingController.isBusy
+                                onClicked: recordingController.saveRecording()
+                            }
+
+                            AppButton {
+                                text: recordingController.hasReview ? "Discard" : "Cancel"
+                                enabled: !recordingController.isBusy
+                                onClicked: recordingController.discardRecording()
+                            }
+                        }
                     }
                 }
             }
@@ -608,181 +439,193 @@ ApplicationWindow {
     Component {
         id: galleryPage
 
-        ColumnLayout {
+        Item {
             anchors.fill: parent
-            spacing: 16
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 12
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
 
-                AppButton {
-                    text: "Refresh"
-                    onClicked: galleryController.refresh()
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: controlWindow.wideCardWidth
+
+                    ToolButton {
+                        text: "‹"
+                        enabled: !controlWindow.navigationLocked
+                        onClicked: appController.showDashboard()
+                    }
+
+                    Text {
+                        text: "Gallery"
+                        color: "#6b6661"
+                        font.family: "Noto Serif"
+                        font.pixelSize: 22
+                        font.weight: Font.Medium
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    TextButton {
+                        text: "Clear"
+                        visible: galleryController.selectedIds.length > 0
+                        onClicked: galleryController.clearSelection()
+                    }
                 }
 
-                AppButton {
-                    text: "Compare"
-                    enabled: galleryController.canCompare
-                    onClicked: galleryController.startCompare()
-                }
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.maximumWidth: controlWindow.wideCardWidth
+                    radius: 30
+                    color: "#f7f2ee"
+                    border.width: 1
+                    border.color: "#ffffff"
 
-                AppButton {
-                    text: "Live Compare"
-                    enabled: galleryController.canLiveCompare
-                    onClicked: galleryController.startLiveCompare()
-                }
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 26
+                        spacing: 18
 
-                AppButton {
-                    text: "Clear Selection"
-                    enabled: galleryController.selectedIds.length > 0
-                    onClicked: galleryController.clearSelection()
-                }
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 220
+                            orientation: ListView.Horizontal
+                            spacing: 14
+                            clip: true
+                            model: galleryController.videos
 
-                Item { Layout.fillWidth: true }
-
-                Text {
-                    text: galleryController.videos.length + " saved looks"
-                    color: "#7b6a5c"
-                    font.family: "Noto Sans"
-                    font.pixelSize: 14
-                }
-            }
-
-            Flickable {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                contentWidth: width
-                contentHeight: galleryFlow.implicitHeight
-                clip: true
-
-                Flow {
-                    id: galleryFlow
-                    width: parent.width
-                    spacing: 16
-
-                    Repeater {
-                        model: galleryController.videos
-
-                        delegate: Rectangle {
-                            required property var modelData
-
-                            width: Math.max(260, (galleryFlow.width - 32) / 3)
-                            height: 298
-                            radius: 26
-                            color: "#f6efe8"
-                            border.width: 1
-                            border.color: "#e4d6ca"
-
-                            readonly property bool selected: galleryController.selectedIds.indexOf(modelData.id) >= 0
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 14
-                                spacing: 10
+                            delegate: Item {
+                                required property var modelData
+                                width: 148
+                                height: 200
+                                readonly property bool selected: galleryController.selectedIds.indexOf(modelData.id) >= 0
+                                readonly property int selectedIndex: galleryController.selectedIds.indexOf(modelData.id)
 
                                 Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 186
-                                    radius: 22
-                                    color: "#120f0d"
-                                    clip: true
+                                    anchors.fill: parent
+                                    radius: 16
+                                    color: "#e5ded8"
+                                    border.width: selected ? 2 : 0
+                                    border.color: selected ? "#8e8077" : "transparent"
 
                                     Image {
                                         anchors.fill: parent
+                                        anchors.margins: 0
                                         source: modelData.thumbnailUrl
                                         fillMode: Image.PreserveAspectCrop
                                         visible: source.toString().length > 0
-                                    }
-
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        color: "transparent"
-                                        border.width: 2
-                                        border.color: selected ? "#d08b52" : "transparent"
-                                        radius: 22
+                                        clip: true
                                     }
 
                                     Text {
                                         anchors.centerIn: parent
                                         visible: modelData.thumbnailUrl.length === 0
-                                        text: "No thumbnail"
-                                        color: "#d5c6b8"
+                                        text: "Look"
+                                        color: "#8c8681"
                                         font.family: "Noto Serif"
                                         font.pixelSize: 18
                                     }
 
-                                    Rectangle {
+                                    Text {
                                         anchors.left: parent.left
-                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
                                         anchors.margins: 10
-                                        radius: 999
-                                        color: selected ? "#d08b52" : "#8c7661"
-                                        width: badge.implicitWidth + 18
-                                        height: badge.implicitHeight + 8
+                                        text: modelData.title
+                                        color: "#5f5a55"
+                                        font.family: "Noto Sans"
+                                        font.pixelSize: 12
+                                    }
+
+                                    Rectangle {
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.margins: 10
+                                        radius: 6
+                                        color: "#88000000"
+                                        width: durationLabel.implicitWidth + 12
+                                        height: durationLabel.implicitHeight + 6
 
                                         Text {
-                                            id: badge
+                                            id: durationLabel
                                             anchors.centerIn: parent
-                                            text: selected ? "Selected" : "Preview"
-                                            color: "#fff7f0"
+                                            text: modelData.durationLabel
+                                            color: "white"
                                             font.family: "Noto Sans"
-                                            font.pixelSize: 11
-                                            font.weight: Font.Bold
+                                            font.pixelSize: 10
+                                            font.weight: Font.DemiBold
                                         }
                                     }
-                                }
 
-                                Text {
-                                    text: modelData.title
-                                    color: "#45372d"
-                                    font.family: "Noto Serif"
-                                    font.pixelSize: 22
-                                    wrapMode: Text.WordWrap
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-
-                                    Text {
-                                        text: modelData.durationLabel
-                                        color: "#7d6a5b"
-                                        font.family: "Noto Sans"
-                                        font.pixelSize: 12
-                                    }
-
-                                    Item { Layout.fillWidth: true }
-
-                                    Text {
-                                        text: modelData.createdLabel
-                                        color: "#7d6a5b"
-                                        font.family: "Noto Sans"
-                                        font.pixelSize: 12
-                                    }
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 8
-
-                                    AppButton {
-                                        Layout.fillWidth: true
-                                        text: "Open"
+                                    MouseArea {
+                                        anchors.fill: parent
                                         onClicked: galleryController.openVideo(modelData.id)
                                     }
 
-                                    AppButton {
-                                        Layout.fillWidth: true
-                                        text: selected ? "Unselect" : "Select"
-                                        onClicked: galleryController.toggleSelect(modelData.id)
-                                    }
+                                    Rectangle {
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: 8
+                                        width: 26
+                                        height: 26
+                                        radius: 8
+                                        color: selected ? "#8e8077" : "#e7dfd8"
 
-                                    AppButton {
-                                        Layout.fillWidth: true
-                                        text: "Delete"
-                                        onClicked: galleryController.deleteVideo(modelData.id)
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: selected ? (selectedIndex + 1).toString() : "+"
+                                            color: selected ? "white" : "#6b6661"
+                                            font.family: "Noto Sans"
+                                            font.pixelSize: 12
+                                            font.weight: Font.DemiBold
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            onClicked: galleryController.toggleSelect(modelData.id)
+                                        }
                                     }
                                 }
+                            }
+
+                            Text {
+                                anchors.centerIn: parent
+                                visible: galleryController.videos.length === 0
+                                text: "No looks recorded yet"
+                                color: "#8c8681"
+                                font.family: "Noto Sans"
+                                font.pixelSize: 14
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 12
+
+                            AppButton {
+                                text: "Compare"
+                                enabled: galleryController.canCompare
+                                onClicked: galleryController.startCompare()
+                            }
+
+                            AppButton {
+                                text: "Live Compare"
+                                enabled: galleryController.canLiveCompare
+                                onClicked: galleryController.startLiveCompare()
+                            }
+
+                            AppButton {
+                                text: "Refresh"
+                                onClicked: galleryController.refresh()
+                            }
+
+                            AppButton {
+                                text: "Delete"
+                                enabled: galleryController.selectedIds.length === 1
+                                onClicked: galleryController.deleteVideo(galleryController.selectedIds[0])
                             }
                         }
                     }
@@ -794,31 +637,72 @@ ApplicationWindow {
     Component {
         id: playerPage
 
-        ColumnLayout {
+        Item {
             anchors.fill: parent
-            spacing: 16
 
-            MediaSurface {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                primarySource: playbackService.primarySource
-                primaryLabel: playbackService.primaryLabel
-                orientationDegrees: settingsController.mirrorOrientationDegrees
-                fillCrop: false
-            }
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
 
-            RowLayout {
-                Layout.alignment: Qt.AlignLeft
-                spacing: 12
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
 
-                AppButton {
-                    text: "Back to Gallery"
-                    onClicked: appController.showGallery()
+                    ToolButton {
+                        text: "‹"
+                        onClicked: appController.showGallery()
+                    }
+
+                    Text {
+                        text: controlWindow.pageTitle
+                        color: "#6b6661"
+                        font.family: "Noto Serif"
+                        font.pixelSize: 22
+                        font.weight: Font.Medium
+                    }
                 }
 
-                AppButton {
-                    text: "Blackout Mirror"
-                    onClicked: settingsController.blackoutMirror()
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
+                    radius: 30
+                    color: "#f7f2ee"
+                    border.width: 1
+                    border.color: "#ffffff"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 22
+                        spacing: 18
+
+                        MediaSurface {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            primarySource: playbackService.primarySource
+                            primaryLabel: playbackService.primaryLabel
+                            orientationDegrees: settingsController.mirrorOrientationDegrees
+                            fillCrop: false
+                        }
+
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 12
+
+                            AppButton {
+                                text: "Back to Gallery"
+                                onClicked: appController.showGallery()
+                            }
+
+                            AppButton {
+                                text: "Blackout Mirror"
+                                onClicked: settingsController.blackoutMirror()
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -827,34 +711,75 @@ ApplicationWindow {
     Component {
         id: comparePage
 
-        ColumnLayout {
+        Item {
             anchors.fill: parent
-            spacing: 16
 
-            MediaSurface {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                splitView: true
-                primarySource: playbackService.primarySource
-                secondarySource: playbackService.secondarySource
-                primaryLabel: playbackService.primaryLabel
-                secondaryLabel: playbackService.secondaryLabel
-                fillCrop: settingsController.compareFillCrop
-                orientationDegrees: settingsController.mirrorOrientationDegrees
-            }
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
 
-            RowLayout {
-                spacing: 12
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
 
-                AppButton {
-                    text: "Back to Gallery"
-                    onClicked: appController.showGallery()
+                    ToolButton {
+                        text: "‹"
+                        onClicked: appController.showGallery()
+                    }
+
+                    Text {
+                        text: "Compare Looks"
+                        color: "#6b6661"
+                        font.family: "Noto Serif"
+                        font.pixelSize: 22
+                        font.weight: Font.Medium
+                    }
                 }
 
-                Switch {
-                    checked: settingsController.compareFillCrop
-                    text: checked ? "Crop + Fit" : "Full Frame"
-                    onToggled: settingsController.setCompareFillCrop(checked)
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
+                    radius: 30
+                    color: "#f7f2ee"
+                    border.width: 1
+                    border.color: "#ffffff"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 22
+                        spacing: 18
+
+                        MediaSurface {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            splitView: true
+                            primarySource: playbackService.primarySource
+                            secondarySource: playbackService.secondarySource
+                            primaryLabel: "Look 1"
+                            secondaryLabel: "Look 2"
+                            fillCrop: settingsController.compareFillCrop
+                            orientationDegrees: settingsController.mirrorOrientationDegrees
+                        }
+
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 12
+
+                            AppButton {
+                                text: "Back to Gallery"
+                                onClicked: appController.showGallery()
+                            }
+
+                            AppButton {
+                                text: settingsController.compareFillCrop ? "Crop + Fit" : "Full Frame"
+                                onClicked: settingsController.setCompareFillCrop(!settingsController.compareFillCrop)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -863,35 +788,76 @@ ApplicationWindow {
     Component {
         id: liveComparePage
 
-        ColumnLayout {
+        Item {
             anchors.fill: parent
-            spacing: 16
 
-            MediaSurface {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                splitView: true
-                primarySource: playbackService.primarySource
-                secondarySource: playbackService.secondarySource
-                primaryLabel: playbackService.primaryLabel
-                secondaryLabel: playbackService.secondaryLabel
-                fillCrop: settingsController.compareFillCrop
-                orientationDegrees: settingsController.mirrorOrientationDegrees
-                showGuides: true
-            }
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
 
-            RowLayout {
-                spacing: 12
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
 
-                AppButton {
-                    text: "Back to Gallery"
-                    onClicked: appController.showGallery()
+                    ToolButton {
+                        text: "‹"
+                        onClicked: appController.showGallery()
+                    }
+
+                    Text {
+                        text: "Live Compare"
+                        color: "#6b6661"
+                        font.family: "Noto Serif"
+                        font.pixelSize: 22
+                        font.weight: Font.Medium
+                    }
                 }
 
-                Switch {
-                    checked: settingsController.compareFillCrop
-                    text: checked ? "Crop + Fit" : "Full Frame"
-                    onToggled: settingsController.setCompareFillCrop(checked)
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.maximumWidth: controlWindow.mediaCardWidth
+                    radius: 30
+                    color: "#f7f2ee"
+                    border.width: 1
+                    border.color: "#ffffff"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 22
+                        spacing: 18
+
+                        MediaSurface {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            splitView: true
+                            primarySource: playbackService.primarySource
+                            secondarySource: playbackService.secondarySource
+                            primaryLabel: "Look 1"
+                            secondaryLabel: "Live"
+                            fillCrop: settingsController.compareFillCrop
+                            orientationDegrees: settingsController.mirrorOrientationDegrees
+                            showGuides: true
+                        }
+
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 12
+
+                            AppButton {
+                                text: "Back to Gallery"
+                                onClicked: appController.showGallery()
+                            }
+
+                            AppButton {
+                                text: settingsController.compareFillCrop ? "Crop + Fit" : "Full Frame"
+                                onClicked: settingsController.setCompareFillCrop(!settingsController.compareFillCrop)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -900,176 +866,202 @@ ApplicationWindow {
     Component {
         id: settingsPage
 
-        Flickable {
-            clip: true
-            contentWidth: width
-            contentHeight: settingsColumn.implicitHeight
+        Item {
+            anchors.fill: parent
 
-            ColumnLayout {
-                id: settingsColumn
-                width: parent.width
-                spacing: 18
+            ScrollView {
+                anchors.fill: parent
+                anchors.margins: 20
+                clip: true
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 28
-                    color: "#f0e2d4"
-                    border.width: 1
-                    border.color: "#dbc7b6"
+                ColumnLayout {
+                    width: controlWindow.wideCardWidth
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 14
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 20
-                        spacing: 14
+                    RowLayout {
+                        Layout.fillWidth: true
 
-                        Text {
-                            text: "Display Assignment"
-                            color: "#45372d"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 28
+                        ToolButton {
+                            text: "‹"
+                            enabled: !controlWindow.navigationLocked
+                            onClicked: appController.showDashboard()
                         }
 
-                        RowLayout {
-                            spacing: 12
+                        Text {
+                            text: "Settings"
+                            color: "#6b6661"
+                            font.family: "Noto Serif"
+                            font.pixelSize: 22
+                            font.weight: Font.Medium
+                        }
+                    }
 
-                            ComboBox {
-                                id: controlScreenCombo
-                                model: settingsController.displays
-                                textRole: "label"
-                                currentIndex: Math.min(settingsController.controlScreenIndex, count - 1)
-                                Layout.fillWidth: true
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 30
+                        color: "#f7f2ee"
+                        border.width: 1
+                        border.color: "#ffffff"
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 24
+                            spacing: 16
+
+                            Text {
+                                text: "Display Assignment"
+                                color: "#6b6661"
+                                font.family: "Noto Serif"
+                                font.pixelSize: 24
                             }
 
-                            ComboBox {
-                                id: mirrorScreenCombo
-                                model: settingsController.displays
-                                textRole: "label"
-                                currentIndex: Math.min(settingsController.mirrorScreenIndex, count - 1)
+                            RowLayout {
                                 Layout.fillWidth: true
-                            }
+                                spacing: 12
 
-                            AppButton {
-                                text: "Apply"
-                                onClicked: settingsController.saveScreenAssignment(controlScreenCombo.currentIndex, mirrorScreenCombo.currentIndex)
+                                ComboBox {
+                                    id: controlScreenCombo
+                                    Layout.fillWidth: true
+                                    model: settingsController.displays
+                                    textRole: "label"
+                                    currentIndex: Math.min(settingsController.controlScreenIndex >= 0 ? settingsController.controlScreenIndex : 0, Math.max(0, count - 1))
+                                }
+
+                                ComboBox {
+                                    id: mirrorScreenCombo
+                                    Layout.fillWidth: true
+                                    model: settingsController.displays
+                                    textRole: "label"
+                                    currentIndex: Math.min(settingsController.mirrorScreenIndex >= 0 ? settingsController.mirrorScreenIndex : Math.max(0, count - 1), Math.max(0, count - 1))
+                                }
+
+                                AppButton {
+                                    text: "Apply"
+                                    onClicked: settingsController.saveScreenAssignment(controlScreenCombo.currentIndex, mirrorScreenCombo.currentIndex)
+                                }
                             }
                         }
                     }
-                }
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 28
-                    color: "#f6efe8"
-                    border.width: 1
-                    border.color: "#e2d5ca"
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 30
+                        color: "#f7f2ee"
+                        border.width: 1
+                        border.color: "#ffffff"
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 20
-                        spacing: 14
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 24
+                            spacing: 16
 
-                        Text {
-                            text: "Mirror Preferences"
-                            color: "#45372d"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 28
+                            Text {
+                                text: "Mirror Preferences"
+                                color: "#6b6661"
+                                font.family: "Noto Serif"
+                                font.pixelSize: 24
+                            }
+
+                            RowLayout {
+                                spacing: 10
+                                Repeater {
+                                    model: [0, 90, 180, 270]
+                                    delegate: AppButton {
+                                        text: modelData + "°"
+                                        onClicked: settingsController.setMirrorOrientation(modelData)
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                spacing: 12
+
+                                AppButton {
+                                    text: settingsController.compareFillCrop ? "Compare: Crop + Fit" : "Compare: Full Frame"
+                                    onClicked: settingsController.setCompareFillCrop(!settingsController.compareFillCrop)
+                                }
+
+                                AppButton {
+                                    text: "Show Test Pattern"
+                                    onClicked: settingsController.showMirrorTestPattern()
+                                }
+
+                                AppButton {
+                                    text: "Blackout Mirror"
+                                    onClicked: settingsController.blackoutMirror()
+                                }
+                            }
                         }
+                    }
 
-                        RowLayout {
-                            spacing: 10
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 30
+                        color: "#f7f2ee"
+                        border.width: 1
+                        border.color: "#ffffff"
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 24
+                            spacing: 14
+
+                            Text {
+                                text: "Camera Backend"
+                                color: "#6b6661"
+                                font.family: "Noto Serif"
+                                font.pixelSize: 24
+                            }
+
                             Repeater {
-                                model: [0, 90, 180, 270]
-                                delegate: AppButton {
-                                    text: "Rotate " + modelData + "°"
-                                    onClicked: settingsController.setMirrorOrientation(modelData)
-                                }
-                            }
-                        }
+                                model: settingsController.cameraBackends
 
-                        Switch {
-                            checked: settingsController.compareFillCrop
-                            text: checked ? "Compare uses crop + fit" : "Compare uses full frame"
-                            onToggled: settingsController.setCompareFillCrop(checked)
-                        }
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    radius: 20
+                                    color: settingsController.cameraBackend === modelData.key ? "#f1eae6" : "#fbf7f3"
+                                    border.width: 1
+                                    border.color: modelData.available ? "#e4ddd7" : "#d9b7b3"
+                                    implicitHeight: 64
 
-                        RowLayout {
-                            spacing: 12
-                            AppButton {
-                                text: "Show Test Pattern"
-                                onClicked: settingsController.showMirrorTestPattern()
-                            }
-                            AppButton {
-                                text: "Blackout Mirror"
-                                onClicked: settingsController.blackoutMirror()
-                            }
-                        }
-                    }
-                }
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 14
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 28
-                    color: "#201915"
+                                        Text {
+                                            text: modelData.label
+                                            color: "#6b6661"
+                                            font.family: "Noto Serif"
+                                            font.pixelSize: 18
+                                        }
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 20
-                        spacing: 14
+                                        Item { Layout.fillWidth: true }
 
-                        Text {
-                            text: "Camera Backend"
-                            color: "#fbf6f0"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 28
-                        }
+                                        Text {
+                                            text: modelData.available ? "available" : "missing"
+                                            color: modelData.available ? "#7a746e" : "#9e4b4b"
+                                            font.family: "Noto Sans"
+                                            font.pixelSize: 12
+                                        }
 
-                        Repeater {
-                            model: settingsController.cameraBackends
-
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                radius: 20
-                                color: settingsController.cameraBackend === modelData.key ? "#3a2f27" : "#291f1a"
-                                border.width: 1
-                                border.color: modelData.available ? "#56473d" : "#6d3b36"
-                                height: 64
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 14
-
-                                    Text {
-                                        text: modelData.label
-                                        color: "#f8f1ea"
-                                        font.family: "Noto Serif"
-                                        font.pixelSize: 20
-                                    }
-
-                                    Item { Layout.fillWidth: true }
-
-                                    Text {
-                                        text: modelData.available ? "available" : "missing"
-                                        color: modelData.available ? "#c4d8c3" : "#e8b8b0"
-                                        font.family: "Noto Sans"
-                                        font.pixelSize: 12
-                                    }
-
-                                    AppButton {
-                                        text: "Use"
-                                        enabled: modelData.available
-                                        onClicked: settingsController.setCameraBackend(modelData.key)
+                                        AppButton {
+                                            text: "Use"
+                                            enabled: modelData.available
+                                            onClicked: settingsController.setCameraBackend(modelData.key)
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        Text {
-                            text: settingsController.dependencySummary
-                            color: "#c6b7ab"
-                            font.family: "Noto Sans"
-                            font.pixelSize: 13
-                            wrapMode: Text.WordWrap
+                            Text {
+                                text: settingsController.dependencySummary
+                                color: "#7a746e"
+                                font.family: "Noto Sans"
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }
