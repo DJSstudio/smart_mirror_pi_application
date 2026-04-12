@@ -263,11 +263,14 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-tune", "zerolatency",
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
-        # A keyframe every ~5 frames means the UDP preview recovers from any
-        # lost/late packet within 5 frames instead of waiting a full second.
-        # This eliminates the block-pixelation artefacts on the live preview.
-        # The trade-off (slightly larger MP4 file) is negligible at 8 Mbps.
-        "-g", str(max(fps // 6, 3)),
+        # Force every frame to be an I-frame (gop=1).  With inter-frame
+        # prediction (P/B frames), a single lost UDP packet corrupts every
+        # dependent frame until the next keyframe — causing seconds of
+        # mosaic artefacts.  With gop=1 every frame is self-contained, so
+        # a dropped packet glitches exactly one frame (~33 ms) instead of
+        # cascading.  Total bitrate stays the same; file size is unaffected
+        # because -b:v still caps the throughput.
+        "-g", "1",
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         "-f", "tee", tee,

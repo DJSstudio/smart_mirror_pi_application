@@ -168,7 +168,12 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--height", str(height),
         "--framerate", str(fps),
         "--codec", "h264",
-        "--inline",
+        "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
+        # Force every frame to be an IDR (intra=1).  This makes the UDP
+        # preview stream fully intra-frame so a lost packet can never
+        # corrupt more than a single frame — eliminating the cascading
+        # mosaic artefacts seen during live preview.
+        "--intra", "1",
         "--bitrate", str(bitrate),
         "-o", "-",
     ]
