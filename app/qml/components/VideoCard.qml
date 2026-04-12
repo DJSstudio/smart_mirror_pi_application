@@ -1,4 +1,4 @@
-// Gallery video card — thumbnail, title, duration badge, selection overlay.
+// Gallery video card — thumbnail, title, duration badge, selection checkbox.
 import QtQuick
 import QtQuick.Layouts
 
@@ -14,7 +14,7 @@ Rectangle {
     property int selectionIndex: -1  // 1 or 2 when selected
 
     signal tapped()
-    signal longPressed()
+    signal checkboxTapped()
 
     width: 160
     height: 220
@@ -108,28 +108,55 @@ Rectangle {
         }
     }
 
-    // Selection badge
+    // Card body tap → play.  Declared before the checkbox so the checkbox
+    // (higher z-order, declared later) can intercept its own taps.
+    MouseArea {
+        anchors.fill: parent
+        onClicked: root.tapped()
+    }
+
+    // Checkbox — always visible in the top-right corner of the thumbnail.
+    // Declared after the body MouseArea so it sits on top and captures
+    // taps independently from the card body.
     Rectangle {
-        visible: root.selected
+        id: checkbox
         anchors { top: parent.top; right: parent.right; topMargin: 8; rightMargin: 8 }
-        width: 26; height: 26
+        width: 30; height: 30
         radius: 999
-        color: "#7a6a5a"
+
+        // Filled when selected, outlined when not
+        color: root.selected ? "#7a6a5a" : "transparent"
+        border.width: root.selected ? 0 : 2
+        border.color: "#ffffffcc"
+
+        // Outer shadow ring makes the outline visible against any thumbnail
+        Rectangle {
+            visible: !root.selected
+            anchors.centerIn: parent
+            width: parent.width + 2; height: parent.height + 2
+            radius: 999
+            color: "transparent"
+            border.width: 1
+            border.color: "#44000000"
+            z: -1
+        }
 
         Text {
             anchors.centerIn: parent
+            visible: root.selected
             text: root.selectionIndex > 0 ? root.selectionIndex.toString() : "✓"
-            font.pixelSize: 13
+            font.pixelSize: 14
             font.weight: Font.Bold
             color: "#fff8f4"
         }
-    }
 
-    // Touch / mouse handling
-    MouseArea {
-        anchors.fill: parent
-        pressAndHoldInterval: 600
-        onClicked: root.tapped()
-        onPressAndHold: root.longPressed()
+        MouseArea {
+            anchors.fill: parent
+            anchors.margins: -6   // extra touch target padding
+            onClicked: {
+                mouse.accepted = true
+                root.checkboxTapped()
+            }
+        }
     }
 }

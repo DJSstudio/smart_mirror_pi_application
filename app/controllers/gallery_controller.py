@@ -56,6 +56,10 @@ class GalleryController(QObject):
         return len(self._selected_ids)
 
     @Property(bool, notify=changed)
+    def canPlay(self) -> bool:
+        return len(self._selected_ids) == 1
+
+    @Property(bool, notify=changed)
     def canCompare(self) -> bool:
         return len(self._selected_ids) == 2
 
@@ -97,6 +101,12 @@ class GalleryController(QObject):
             return
         self._playback.open_video(video)
         self._app.show_player()
+
+    @Slot()
+    def playSelected(self) -> None:
+        if len(self._selected_ids) != 1:
+            return
+        self.playVideo(self._selected_ids[0])
 
     @Slot()
     def compareSelected(self) -> None:

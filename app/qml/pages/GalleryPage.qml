@@ -23,11 +23,18 @@ Item {
             onBackClicked: appController.showDashboard()
         }
 
-        // ── Action toolbar ───────────────────────────────────────────
+        // ── Contextual action toolbar ────────────────────────────────
+        // Visible only while videos are selected; shows relevant actions.
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
-            visible: galleryController.videoCount > 0
+            visible: galleryController.selectedCount > 0
+
+            AppButton {
+                text: "Play"
+                enabled: galleryController.canPlay
+                onClicked: galleryController.playSelected()
+            }
 
             AppButton {
                 text: "Compare"
@@ -44,7 +51,6 @@ Item {
             Item { Layout.fillWidth: true }
 
             AppButton {
-                visible: galleryController.selectedCount > 0
                 text: "Clear"
                 variant: "secondary"
                 onClicked: galleryController.clearSelection()
@@ -54,7 +60,22 @@ Item {
         // ── Selection hint ───────────────────────────────────────────
         Text {
             visible: galleryController.videoCount > 0 && galleryController.selectedCount === 0
-            text: "Tap to play  ·  Tap again to select for compare"
+            text: "Tap a card to play  ·  Tap ○ to select for compare"
+            font.pixelSize: 12
+            color: "#a09590"
+        }
+
+        // ── Selection action hint ────────────────────────────────────
+        Text {
+            visible: galleryController.selectedCount === 1
+            text: "1 selected — tap ○ on a second card to Compare, or choose an action above"
+            font.pixelSize: 12
+            color: "#a09590"
+        }
+
+        Text {
+            visible: galleryController.selectedCount === 2
+            text: "2 selected — ready to Compare"
             font.pixelSize: 12
             color: "#a09590"
         }
@@ -83,15 +104,8 @@ Item {
                         selected: galleryController.selectedIds.indexOf(modelData.id) >= 0
                         selectionIndex: galleryController.selectedIds.indexOf(modelData.id) + 1
 
-                        onTapped: {
-                            // First tap → play; if already selected → deselect; else select
-                            if (galleryController.selectedCount === 0) {
-                                galleryController.playVideo(modelData.id)
-                            } else {
-                                galleryController.toggleSelect(modelData.id)
-                            }
-                        }
-                        onLongPressed: galleryController.toggleSelect(modelData.id)
+                        onTapped: galleryController.playVideo(modelData.id)
+                        onCheckboxTapped: galleryController.toggleSelect(modelData.id)
                     }
                 }
             }
@@ -140,9 +154,9 @@ Item {
 
         // ── Delete hint ──────────────────────────────────────────────
         Text {
-            visible: galleryController.selectedCount > 0
+            visible: galleryController.videoCount > 0
             Layout.alignment: Qt.AlignHCenter
-            text: "Hold a card to select/deselect for compare.  To delete, open the player."
+            text: "To delete a video, tap it to open the player."
             font.pixelSize: 11
             color: "#b0a8a2"
         }
