@@ -13,7 +13,7 @@ Item {
 
         Item { Layout.fillHeight: true }
 
-        // ── Title ────────────────────────��───────────────────────────
+        // ── Title ────────────────────────────────────────────────────
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: "Smart Mirror"
@@ -55,17 +55,26 @@ Item {
                 cache: false
             }
 
-            BusyIndicator {
+            // Pulsing dot while QR is generating (no QtQuick.Controls needed)
+            Rectangle {
                 visible: loginController.qrImageUrl.length === 0
                          && loginController.errorMessage.length === 0
                 anchors.centerIn: parent
-                running: visible
+                width: 20; height: 20; radius: 10
+                color: "#b0a8a0"
+
+                SequentialAnimation on opacity {
+                    running: parent.visible
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.2; duration: 600 }
+                    NumberAnimation { to: 1.0; duration: 600 }
+                }
             }
         }
 
         Item { Layout.preferredHeight: 16 }
 
-        // ── Server URL hint ──────────────────────────���───────────────
+        // ── Server URL hint ──────────────────────────────────────────
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: loginController.serverUrl
@@ -76,7 +85,7 @@ Item {
 
         Item { Layout.preferredHeight: 24 }
 
-        // ── Waiting indicator ───────────────────────────��────────────
+        // ── Waiting indicator ────────────────────────────────────────
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: 8
@@ -115,7 +124,7 @@ Item {
 
         Item { Layout.fillHeight: true }
 
-        // ── Skip button ────────────────��──────────────────────────���──
+        // ── Skip button ──────────────────────────────────────────────
         AppButton {
             Layout.alignment: Qt.AlignHCenter
             text: "Continue without scan"
