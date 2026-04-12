@@ -115,6 +115,9 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
             return CompletedCapture(file_path=cap_path, file_format=cap_fmt, backend=self.backend_name)
         return None
 
+    def is_alive(self) -> bool:
+        return self._rpicam_proc is not None and self._rpicam_proc.poll() is None
+
     # ------------------------------------------------------------------
 
     def _spawn(self, *, rpicam_args: list[str], ffmpeg_args: list[str]) -> None:
@@ -140,7 +143,9 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
     return [
         "rpicam-vid",
         "--nopreview",
-        "--timeout", "0",
+        # Use a 24-hour timeout instead of 0 to avoid version-specific
+        # ambiguity: on some builds --timeout 0 exits immediately.
+        "--timeout", "86400000",
         "--width", str(width),
         "--height", str(height),
         "--framerate", str(fps),

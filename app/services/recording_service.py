@@ -41,16 +41,16 @@ class RecordingService:
         if capture.file_format == "mp4":
             if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
                 raise RuntimeError(
-                    "Recording was too short — no video data was captured. "
-                    "Try recording for at least 2 seconds."
+                    "No video data was captured. The camera may not be initialised — "
+                    "enable it via raspi-config → Interface Options → Camera, then reboot."
                 )
             return PreparedRecording(file_path=capture.file_path, backend=capture.backend)
 
         if capture.file_format == "h264":
             if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
                 raise RuntimeError(
-                    "Recording was too short — no video data was captured. "
-                    "Try recording for at least 2 seconds."
+                    "No video data was captured. The camera may not be initialised — "
+                    "enable it via raspi-config → Interface Options → Camera, then reboot."
                 )
             fps = int(self._settings.get("camera_fps", 30))
             mp4_path = capture.file_path.with_suffix(".mp4")

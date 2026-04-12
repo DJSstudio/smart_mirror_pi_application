@@ -222,6 +222,20 @@ class RecordingController(QObject):
 
     def _tick_elapsed(self) -> None:
         self._elapsed += 1
+        # Detect if the camera process crashed mid-recording
+        if not self._camera.is_alive():
+            LOGGER.warning("Camera process died during recording after %ds", self._elapsed)
+            self._el_timer.stop()
+            self._mirror.show_idle_black()
+            self._recording = False
+            self._preview_source = ""
+            self._busy = False
+            msg = (
+                "Camera stopped unexpectedly. "
+                "Check that the camera is connected and enabled (raspi-config → Interface Options → Camera)."
+            )
+            self._set_error(msg)
+            self._app.showError(msg)
         self._emit()
 
     # ------------------------------------------------------------------

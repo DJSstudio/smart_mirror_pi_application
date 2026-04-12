@@ -218,6 +218,15 @@ Item {
                 }
             }
 
+            // ── Section: Application ─────────────────────────────────
+            SectionHeader { text: "Application" }
+
+            AppButton {
+                text: "Quit Application"
+                variant: "danger"
+                onClicked: Qt.quit()
+            }
+
             Item { Layout.preferredHeight: 32 }
         }
     }

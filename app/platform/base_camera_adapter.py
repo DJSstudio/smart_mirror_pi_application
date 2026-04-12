@@ -46,6 +46,10 @@ class BaseCameraAdapter(ABC):
     @abstractmethod
     def stop(self, discard: bool = False) -> CompletedCapture | None: ...
 
+    def is_alive(self) -> bool:
+        """Return True if the camera subprocess is still running."""
+        return False
+
     # ------------------------------------------------------------------
     # Shared utilities
     # ------------------------------------------------------------------
@@ -57,16 +61,31 @@ class BaseCameraAdapter(ABC):
             return s.getsockname()[1]
 
     def _start_pipe_logger(self, label: str, pipe) -> None:
-        """Drain a subprocess pipe in a background thread, writing to the logger."""
+        """Drain a subprocess pipe in a background thread, writing to the logger.
+
+        Camera process errors are logged at WARNING so they appear in the console
+        even at the default INFO log level — this is critical for diagnosing
+        why rpicam-vid or ffmpeg fails.
+        """
         if pipe is None:
             return
+
+        _error_keywords = ("error", "fail", "cannot", "permission", "denied", "no such", "invalid")
 
         def _drain():
             try:
                 for raw_line in pipe:
-                    line = raw_line.decode(errors="replace").rstrip() if isinstance(raw_line, bytes) else raw_line.rstrip()
-                    if line:
-                        self._logger.debug("[%s] %s", label, line)
+                    line = (
+                        raw_line.decode(errors="replace").rstrip()
+                        if isinstance(raw_line, bytes)
+                        else raw_line.rstrip()
+                    )
+                    if not line:
+                        continue
+                    if any(k in line.lower() for k in _error_keywords):
+                        self._logger.warning("[%s] %s", label, line)
+                    else:
+                        self._logger.info("[%s] %s", label, line)
             except Exception:  # noqa: BLE001
                 pass
 

@@ -108,6 +108,9 @@ class UsbCameraAdapter(BaseCameraAdapter):
             return CompletedCapture(file_path=cap_path, file_format=cap_fmt, backend=self.backend_name)
         return None
 
+    def is_alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
     def _spawn(self, command: list[str]) -> None:
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg is required for USB camera capture")

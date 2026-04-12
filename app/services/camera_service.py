@@ -59,6 +59,12 @@ class CameraService:
     def is_active(self) -> bool:
         return self._active is not None
 
+    def is_alive(self) -> bool:
+        """Return True if the active camera subprocess is still running."""
+        if self._active is None:
+            return False
+        return self._active.is_alive()
+
     def available_backends(self) -> list[dict[str, object]]:
         return [
             {"key": "auto",         "label": "Auto detect",          "available": self._pi.is_available() or self._usb.is_available()},

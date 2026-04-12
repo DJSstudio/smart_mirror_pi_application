@@ -18,6 +18,9 @@ ApplicationWindow {
     flags: Qt.Window | Qt.FramelessWindowHint
     color: "#f2ece7"
 
+    // ── Global keyboard shortcuts ─────────────────────────────────────
+    Shortcut { sequence: "Ctrl+Q"; onActivated: Qt.quit() }
+
     // ── Navigation locked while recording ────────────────────────────
     readonly property bool navLocked:
         recordingController ? (recordingController.isRecording
