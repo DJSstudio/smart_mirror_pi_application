@@ -256,7 +256,7 @@ Item {
         font.pixelSize: 11
         font.weight: Font.Bold
         color: "#a09590"
-        letterSpacing: 1.2
+        font.letterSpacing: 1.2
     }
 
     component SettingRow: Item {

@@ -123,6 +123,35 @@ class UsbCameraAdapter(BaseCameraAdapter):
 # ---------------------------------------------------------------------------
 
 def _detect_devices() -> list[str]:
+    """Return V4L2 capture device paths, filtering out codec/ISP nodes.
+
+    On Raspberry Pi, /dev/video* includes bcm2835 codec and ISP devices that
+    are not real cameras.  v4l2-ctl --list-devices groups devices by name, so
+    we skip any group whose header contains 'bcm2835' or 'isp'.  Falls back to
+    a plain glob when v4l2-ctl is not installed.
+    """
+    if shutil.which("v4l2-ctl"):
+        try:
+            result = subprocess.run(
+                ["v4l2-ctl", "--list-devices"],
+                capture_output=True, text=True, timeout=5,
+            )
+            devices: list[str] = []
+            include_block = False
+            for line in result.stdout.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.endswith(":"):
+                    # Device-group header — skip Pi codec/ISP nodes
+                    lower = stripped.lower()
+                    include_block = "bcm2835" not in lower and "isp" not in lower and "codec" not in lower
+                elif include_block and stripped.startswith("/dev/video"):
+                    devices.append(stripped)
+            if devices:
+                return sorted(set(devices))
+        except Exception:  # noqa: BLE001
+            pass
     return sorted(glob.glob("/dev/video*"))
 
 
@@ -135,12 +164,31 @@ def _resolve_device(hint: str | None) -> str:
     return devices[0]
 
 
+def _probe_input_format(device: str) -> str:
+    """Return 'mjpeg' if the device supports MJPEG capture, otherwise ''."""
+    if not shutil.which("v4l2-ctl"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "--device", device, "--list-formats"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if "mjpeg" in result.stdout.lower():
+            return "mjpeg"
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, tee: str) -> list[str]:
+    input_fmt = _probe_input_format(device)
+    input_fmt_args = ["-input_format", input_fmt] if input_fmt else []
     return [
         "ffmpeg",
         "-hide_banner", "-loglevel", "warning",
         "-fflags", "nobuffer",
         "-f", "v4l2",
+        *input_fmt_args,
         "-framerate", str(fps),
         "-video_size", f"{width}x{height}",
         "-i", device,
@@ -151,6 +199,9 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
         "-g", str(max(fps, 10)),
+        # Explicit stream mapping is required by the tee muxer to route the
+        # video stream to every output target.
+        "-map", "0:v:0",
         "-f", "tee", tee,
     ]
 
