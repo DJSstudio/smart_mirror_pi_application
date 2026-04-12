@@ -19,6 +19,8 @@ sudo apt-get install -y \
     gstreamer1.0-plugins-bad \
     gstreamer1.0-plugins-ugly \
     gstreamer1.0-libav \
+    gstreamer1.0-tools \
+    gstreamer1.0-qt6 \
     libqt6multimedia6 \
     libqt6multimediawidgets6 \
     libqt6opengl6-dev \
