@@ -54,7 +54,7 @@ ApplicationWindow {
         Rectangle {
             id: mirrorCountdownOverlay
             anchors.fill: parent
-            visible: recordingController.countdown > 0
+            visible: recordingController ? recordingController.countdown > 0 : false
             color: "#d9000000"
 
             Column {
@@ -64,7 +64,7 @@ ApplicationWindow {
                 Text {
                     id: mirrorCountNum
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: recordingController.countdown > 0
+                    text: recordingController && recordingController.countdown > 0
                           ? recordingController.countdown.toString() : ""
                     font.pixelSize: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.35
                     font.weight: Font.Bold
@@ -72,7 +72,7 @@ ApplicationWindow {
                     opacity: 0.92
 
                     SequentialAnimation on scale {
-                        running: recordingController.countdown > 0
+                        running: recordingController ? recordingController.countdown > 0 : false
                         loops: Animation.Infinite
                         NumberAnimation { to: 1.12; duration: 300; easing.type: Easing.OutQuad }
                         NumberAnimation { to: 1.0;  duration: 700; easing.type: Easing.InQuad }

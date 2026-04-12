@@ -212,7 +212,7 @@ def main() -> int:
 
     # Start QR login flow: show QR on mirror, login page on control window.
     # The login controller will navigate to dashboard after a successful scan.
-    login_ctrl.start_login()
+    login_ctrl.startLogin()
 
     # Refresh screen placement after the event loop starts (handles late screen init).
     QTimer.singleShot(200, screen_manager.apply_assignment)
