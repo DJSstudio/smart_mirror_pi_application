@@ -1,18 +1,23 @@
 [Unit]
-Description=Smart Mirror Pi application
-After=graphical.target network-online.target
-Wants=graphical.target network-online.target
+Description=Smart Mirror Pi
+After=graphical-session.target
+Wants=graphical-session.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/opt/smart-mirror-pi
-Environment=PYTHONUNBUFFERED=1
 Environment=DISPLAY=:0
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-ExecStart=/opt/smart-mirror-pi/scripts/start_app.sh
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=QT_QPA_PLATFORM=xcb
+Environment=PYTHONUNBUFFERED=1
+
+# Adjust to your actual install path
+WorkingDirectory=/home/pi/smart_mirror_pi
+ExecStart=/home/pi/smart_mirror_pi/venv/bin/python -m app.main
+
 Restart=on-failure
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
-WantedBy=graphical.target
+WantedBy=graphical-session.target

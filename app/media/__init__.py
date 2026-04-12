@@ -1,1 +1,1 @@
-"""Media utilities."""
+"""Media processing tools."""

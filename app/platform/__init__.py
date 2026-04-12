@@ -1,1 +1,1 @@
-"""Platform-specific integration layers."""
+"""Platform-specific adapters and utilities."""

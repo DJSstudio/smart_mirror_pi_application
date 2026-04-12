@@ -1,1 +1,1 @@
-"""QML-facing controller layer."""
+"""QML-facing controllers."""

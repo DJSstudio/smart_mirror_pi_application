@@ -1,11 +1,17 @@
+"""Settings controller — exposes settings to QML and handles screen / camera config.
+
+Exposed to QML as `settingsController`.
+"""
 from __future__ import annotations
 
+import logging
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
-from app.services.camera_service import CameraService
 from app.services.mirror_display_service import MirrorDisplayService
 from app.services.screen_manager import ScreenManager
 from app.services.settings_service import SettingsService
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SettingsController(QObject):
@@ -17,23 +23,88 @@ class SettingsController(QObject):
         settings: SettingsService,
         mirror_display: MirrorDisplayService,
         screen_manager: ScreenManager,
-        camera_service: CameraService,
+        camera_service,
         app_controller,
     ) -> None:
         super().__init__()
         self._settings = settings
-        self._mirror_display = mirror_display
-        self._screen_manager = screen_manager
-        self._camera_service = camera_service
-        self._app_controller = app_controller
+        self._mirror = mirror_display
+        self._screens = screen_manager
+        self._camera = camera_service
+        self._app = app_controller
 
-    @Property("QVariantList", notify=changed)
-    def displays(self):
-        return self._screen_manager.describe_screens()
+    # ------------------------------------------------------------------
+    # Mirror orientation
+    # ------------------------------------------------------------------
 
-    @Property("QVariantList", notify=changed)
-    def cameraBackends(self):
-        return self._camera_service.available_backends()
+    @Property(int, notify=changed)
+    def mirrorOrientationDegrees(self) -> int:
+        return int(self._settings.get("mirror_orientation_degrees", 0))
+
+    @Slot(int)
+    def setMirrorOrientation(self, degrees: int) -> None:
+        self._mirror.set_orientation(degrees)
+        self._settings.set("mirror_orientation_degrees", degrees)
+        self.changed.emit()
+
+    @Slot()
+    def toggleMirrorPortrait(self) -> None:
+        current = self.mirrorOrientationDegrees
+        new_deg = 90 if current == 0 else 0
+        self.setMirrorOrientation(new_deg)
+
+    # ------------------------------------------------------------------
+    # Compare fill/crop
+    # ------------------------------------------------------------------
+
+    @Property(bool, notify=changed)
+    def compareFillCrop(self) -> bool:
+        return bool(self._settings.get("compare_fill_crop", True))
+
+    @Slot(bool)
+    def setCompareFillCrop(self, enabled: bool) -> None:
+        self._mirror.set_compare_fill_crop(enabled)
+        self.changed.emit()
+
+    # ------------------------------------------------------------------
+    # Camera
+    # ------------------------------------------------------------------
+
+    @Property(str, notify=changed)
+    def cameraBackend(self) -> str:
+        return str(self._settings.get("camera_backend", "auto"))
+
+    @Slot(str)
+    def setCameraBackend(self, backend: str) -> None:
+        self._settings.set("camera_backend", backend)
+        self.changed.emit()
+
+    @Property(int, notify=changed)
+    def cameraWidth(self) -> int:
+        return int(self._settings.get("camera_width", 1280))
+
+    @Property(int, notify=changed)
+    def cameraHeight(self) -> int:
+        return int(self._settings.get("camera_height", 720))
+
+    @Property(int, notify=changed)
+    def cameraFps(self) -> int:
+        return int(self._settings.get("camera_fps", 30))
+
+    @Slot(int, int, int)
+    def setCameraResolution(self, width: int, height: int, fps: int) -> None:
+        self._settings.set("camera_width", width)
+        self._settings.set("camera_height", height)
+        self._settings.set("camera_fps", fps)
+        self.changed.emit()
+
+    # ------------------------------------------------------------------
+    # Screens
+    # ------------------------------------------------------------------
+
+    @Property(list, notify=changed)
+    def availableScreens(self) -> list:
+        return self._screens.available_screens()
 
     @Property(int, notify=changed)
     def controlScreenIndex(self) -> int:
@@ -43,66 +114,48 @@ class SettingsController(QObject):
     def mirrorScreenIndex(self) -> int:
         return int(self._settings.get("mirror_screen_index", 1))
 
-    @Property(int, notify=changed)
-    def mirrorOrientationDegrees(self) -> int:
-        return int(self._settings.get("mirror_orientation_degrees", 0))
-
-    @Property(bool, notify=changed)
-    def compareFillCrop(self) -> bool:
-        return bool(self._settings.get("compare_fill_crop", True))
-
-    @Property(str, notify=changed)
-    def cameraBackend(self) -> str:
-        return str(self._settings.get("camera_backend", "auto"))
-
-    @Property(str, notify=changed)
-    def currentCameraBackendLabel(self) -> str:
-        return self._camera_service.current_backend_label()
-
-    @Property(str, notify=changed)
-    def dependencySummary(self) -> str:
-        deps = self._camera_service.dependencies_summary()
-        bits = [f"{key}:{'ok' if available else 'missing'}" for key, available in deps.items()]
-        return " | ".join(bits)
-
-    @Slot(int, int)
-    def saveScreenAssignment(self, control_index: int, mirror_index: int) -> None:
-        self._settings.update(
-            {
-                "control_screen_index": control_index,
-                "mirror_screen_index": mirror_index,
-            }
-        )
-        self._screen_manager.apply_assignment()
+    @Slot(int)
+    def setControlScreenIndex(self, idx: int) -> None:
+        self._settings.set("control_screen_index", idx)
         self.changed.emit()
-        self._app_controller.showStatus("Screen assignment updated")
 
     @Slot(int)
-    def setMirrorOrientation(self, degrees: int) -> None:
-        self._settings.set("mirror_orientation_degrees", degrees)
-        self._mirror_display.set_orientation(degrees)
+    def setMirrorScreenIndex(self, idx: int) -> None:
+        self._settings.set("mirror_screen_index", idx)
         self.changed.emit()
-        self._app_controller.showStatus(f"Mirror orientation set to {degrees}°")
-
-    @Slot(bool)
-    def setCompareFillCrop(self, enabled: bool) -> None:
-        self._settings.set("compare_fill_crop", enabled)
-        self._mirror_display.set_compare_fill_crop(enabled)
-        self.changed.emit()
-        self._app_controller.showStatus("Mirror compare fill mode updated")
-
-    @Slot(str)
-    def setCameraBackend(self, backend: str) -> None:
-        self._settings.set("camera_backend", backend)
-        self.changed.emit()
-        self._app_controller.showStatus(f"Camera backend preference set to {backend}")
 
     @Slot()
-    def showMirrorTestPattern(self) -> None:
-        self._mirror_display.show_test_pattern()
-        self._app_controller.showStatus("Mirror test pattern active")
+    def applyScreenAssignment(self) -> None:
+        try:
+            self._screens.apply_assignment()
+            self._app.showStatus("Screen assignment applied.")
+        except Exception as exc:  # noqa: BLE001
+            self._app.showError(str(exc))
+
+    # ------------------------------------------------------------------
+    # Mirror test
+    # ------------------------------------------------------------------
 
     @Slot()
-    def blackoutMirror(self) -> None:
-        self._mirror_display.show_idle_black()
-        self._app_controller.showStatus("Mirror returned to black idle")
+    def showMirrorTest(self) -> None:
+        self._mirror.show_test_pattern()
+
+    @Slot()
+    def hideMirrorTest(self) -> None:
+        self._mirror.show_idle_black()
+
+    # ------------------------------------------------------------------
+    # Camera info
+    # ------------------------------------------------------------------
+
+    @Property(list, notify=changed)
+    def availableCameraBackends(self) -> list:
+        return self._camera.available_backends()
+
+    @Property(str, notify=changed)
+    def cameraBackendLabel(self) -> str:
+        return self._camera.current_backend_label()
+
+    @Property(object, notify=changed)
+    def dependenciesStatus(self) -> dict:
+        return self._camera.dependencies_ok()

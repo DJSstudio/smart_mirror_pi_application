@@ -1,24 +1,25 @@
+"""Screen descriptor utilities."""
 from __future__ import annotations
 
 from PySide6.QtGui import QScreen
 
 
 def screen_to_descriptor(screen: QScreen, index: int, primary: QScreen | None) -> dict[str, object]:
-    geometry = screen.geometry()
+    geom = screen.geometry()
     return {
         "index": index,
         "name": screen.name(),
-        "width": geometry.width(),
-        "height": geometry.height(),
-        "primary": screen == primary,
+        "width": geom.width(),
+        "height": geom.height(),
+        "isPrimary": screen is primary,
         "label": (
-            f"{index}: {screen.name()} "
-            f"({geometry.width()}x{geometry.height()})"
-            f"{' primary' if screen == primary else ''}"
+            f"Screen {index}: {screen.name()} "
+            f"({geom.width()}×{geom.height()})"
+            f"{' [primary]' if screen is primary else ''}"
         ),
     }
 
 
 def screen_area(screen: QScreen) -> int:
-    geometry = screen.geometry()
-    return int(geometry.width() * geometry.height())
+    geom = screen.geometry()
+    return geom.width() * geom.height()

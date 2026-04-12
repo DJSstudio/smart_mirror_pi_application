@@ -1,9 +1,14 @@
+"""Core data entities used throughout the application."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _to_file_url(value: str | Path | None) -> str:
     if not value:
@@ -18,13 +23,15 @@ def format_duration(seconds: float | None) -> str:
     if not seconds or seconds <= 0:
         return "--:--"
     total = int(seconds)
-    hours = total // 3600
-    minutes = (total % 3600) // 60
-    secs = total % 60
-    if hours:
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    return f"{minutes:02d}:{secs:02d}"
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
+
+# ---------------------------------------------------------------------------
+# Persistent records
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True, slots=True)
 class SessionRecord:
@@ -61,9 +68,9 @@ class VideoRecord:
     def created_label(self) -> str:
         try:
             stamp = datetime.fromisoformat(self.created_at)
+            return stamp.strftime("%b %d, %Y  %H:%M")
         except ValueError:
             return self.created_at
-        return stamp.strftime("%b %d, %Y %H:%M")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -85,22 +92,29 @@ class VideoRecord:
         }
 
 
+# ---------------------------------------------------------------------------
+# Transient camera / recording entities
+# ---------------------------------------------------------------------------
+
 @dataclass(frozen=True, slots=True)
 class CameraPreview:
-    control_preview_url: str
-    mirror_preview_url: str
-    backend: str
-    recording: bool
+    """Live stream URLs and metadata from an active camera session."""
+    control_preview_url: str   # URL for the control-screen preview pane
+    mirror_preview_url: str    # URL for the mirror display
+    backend: str               # "raspberry_pi" | "usb"
+    recording: bool            # True if a capture file is being written
 
 
 @dataclass(frozen=True, slots=True)
 class CompletedCapture:
+    """Raw capture file produced after recording stops."""
     file_path: Path
-    file_format: str
+    file_format: str           # "h264" | "mp4"
     backend: str
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedRecording:
+    """MP4-remuxed file ready for review / saving."""
     file_path: Path
     backend: str

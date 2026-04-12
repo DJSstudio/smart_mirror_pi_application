@@ -1,11 +1,15 @@
+// Video player surface used in the control window pages (not the mirror).
+// Handles single-pane and split-pane layouts with Qt Multimedia.
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 
 Item {
     id: root
 
+    // ---------------------------------------------------------------
+    // Public API
+    // ---------------------------------------------------------------
     property string primarySource: ""
     property string secondarySource: ""
     property string primaryLabel: ""
@@ -14,166 +18,198 @@ Item {
     property bool fillCrop: false
     property bool showGuides: false
     property bool muted: true
-    property bool loop: true
+    property bool looping: true
     property int orientationDegrees: 0
-    property color backgroundColor: "#050505"
+    property color backgroundColor: "#0a0907"
 
+    // Expose playback position for compare seek
+    property real primaryPosition: primaryPane.position
+    property real primaryDuration: primaryPane.duration
+
+    signal primaryFinished()
+    signal secondaryFinished()
+
+    function playPrimary()   { primaryPane.play() }
+    function pausePrimary()  { primaryPane.pause() }
+    function seekPrimary(ms) { primaryPane.seek(ms) }
+
+    function playSecondary()   { secondaryPane.play() }
+    function pauseSecondary()  { secondaryPane.pause() }
+    function seekSecondary(ms) { secondaryPane.seek(ms) }
+
+    // ---------------------------------------------------------------
+    // Background
+    // ---------------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        radius: 30
+        radius: 20
         color: root.backgroundColor
         border.width: 1
-        border.color: "#221d19"
+        border.color: "#1c1814"
     }
 
     Loader {
-        anchors.fill: parent
-        sourceComponent: root.splitView ? splitSurface : singleSurface
+        anchors { fill: parent; margins: 12 }
+        sourceComponent: root.splitView ? splitComp : singleComp
     }
 
+    // ---------------------------------------------------------------
+    // Single pane
+    // ---------------------------------------------------------------
+    Component {
+        id: singleComp
+        VideoPane {
+            id: primaryPane
+            anchors.fill: parent
+            sourceUrl: root.primarySource
+            labelText: root.primaryLabel
+            fillCrop: root.fillCrop
+            muted: root.muted
+            looping: root.looping
+            orientationDegrees: root.orientationDegrees
+            showGuides: root.showGuides
+            onFinished: root.primaryFinished()
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Split pane
+    // ---------------------------------------------------------------
+    Component {
+        id: splitComp
+        RowLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            VideoPane {
+                id: primaryPane
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                sourceUrl: root.primarySource
+                labelText: root.primaryLabel
+                fillCrop: root.fillCrop
+                muted: root.muted
+                looping: root.looping
+                orientationDegrees: root.orientationDegrees
+                onFinished: root.primaryFinished()
+            }
+
+            VideoPane {
+                id: secondaryPane
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                sourceUrl: root.secondarySource
+                labelText: root.secondaryLabel
+                fillCrop: root.fillCrop
+                muted: root.muted
+                looping: root.looping
+                orientationDegrees: root.orientationDegrees
+                showGuides: root.showGuides
+                onFinished: root.secondaryFinished()
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // VideoPane component
+    // ---------------------------------------------------------------
     component VideoPane: Item {
         id: pane
 
         property string sourceUrl: ""
         property string labelText: ""
-        property bool showOverlayGuides: false
+        property bool fillCrop: false
+        property bool muted: true
+        property bool looping: true
+        property int orientationDegrees: 0
+        property bool showGuides: false
+        property real position: player.position
+        property real duration: player.duration
 
-        Rectangle {
-            anchors.fill: parent
-            radius: 26
-            color: "#080808"
-        }
+        signal finished()
+
+        function play()       { player.play() }
+        function pause()      { player.pause() }
+        function seek(ms)     { player.position = ms }
+
+        Rectangle { anchors.fill: parent; radius: 14; color: "#0d0b09" }
 
         MediaPlayer {
             id: player
             source: pane.sourceUrl
-            loops: root.loop ? MediaPlayer.Infinite : 1
-            videoOutput: videoOutput
-            audioOutput: AudioOutput {
-                muted: root.muted
-                volume: root.muted ? 0.0 : 1.0
-            }
+            loops: pane.looping ? MediaPlayer.Infinite : 1
+            videoOutput: videoOut
+            audioOutput: AudioOutput { muted: pane.muted; volume: pane.muted ? 0 : 1 }
+
             onSourceChanged: {
-                if (pane.sourceUrl.length > 0) {
-                    play()
-                } else {
-                    stop()
-                }
+                if (pane.sourceUrl.length > 0) play()
+                else stop()
+            }
+            onPlaybackStateChanged: {
+                if (playbackState === MediaPlayer.StoppedState && !pane.looping)
+                    pane.finished()
             }
         }
 
         Item {
             anchors.fill: parent
-            layer.enabled: root.orientationDegrees !== 0
+            layer.enabled: pane.orientationDegrees !== 0
             transform: Rotation {
-                angle: root.orientationDegrees
+                angle: pane.orientationDegrees
                 origin.x: pane.width / 2
                 origin.y: pane.height / 2
             }
 
             VideoOutput {
-                id: videoOutput
+                id: videoOut
                 anchors.fill: parent
-                fillMode: root.fillCrop ? VideoOutput.PreserveAspectCrop : VideoOutput.PreserveAspectFit
+                fillMode: pane.fillCrop
+                    ? VideoOutput.PreserveAspectCrop
+                    : VideoOutput.PreserveAspectFit
             }
         }
 
+        // Guide overlay
         Item {
             anchors.fill: parent
-            visible: pane.showOverlayGuides
-
+            visible: pane.showGuides
+            // Vertical centre line
+            Rectangle { anchors.centerIn: parent; width: 1; height: parent.height * 0.8; color: "#80c4a882" }
+            // Face-framing oval
             Rectangle {
                 anchors.centerIn: parent
-                width: parent.width * 0.58
-                height: parent.height * 0.82
-                radius: 24
+                width: parent.width * 0.55; height: parent.height * 0.75
+                radius: width / 2
                 color: "transparent"
-                border.width: 2
-                border.color: "#e4d1bf"
-            }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: parent.width * 0.002
-                height: parent.height * 0.82
-                color: "#bfa891"
-                opacity: 0.55
-            }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: parent.width * 0.58
-                height: parent.height * 0.002
-                color: "#bfa891"
-                opacity: 0.55
+                border.width: 1; border.color: "#80c4a882"
             }
         }
 
+        // Label badge
         Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.margins: 14
-            radius: 999
-            color: "#99171210"
             visible: pane.labelText.length > 0
-            width: label.implicitWidth + 18
-            height: label.implicitHeight + 10
+            anchors { left: parent.left; top: parent.top; margins: 10 }
+            radius: 999
+            color: "#aa0a0907"
+            width: lbl.implicitWidth + 14; height: 24
 
             Text {
-                id: label
+                id: lbl
                 anchors.centerIn: parent
                 text: pane.labelText
-                color: "#f6efe8"
-                font.family: "Noto Serif"
-                font.pixelSize: 16
+                color: "#f0ebe5"
+                font.pixelSize: 13
                 font.weight: Font.DemiBold
             }
         }
 
+        // Empty state
         Text {
             anchors.centerIn: parent
             visible: pane.sourceUrl.length === 0
-            text: "Awaiting source"
-            color: "#b9ae9f"
-            font.family: "Noto Serif"
-            font.pixelSize: 22
-        }
-    }
-
-    Component {
-        id: singleSurface
-
-        VideoPane {
-            anchors.fill: parent
-            anchors.margins: 14
-            sourceUrl: root.primarySource
-            labelText: root.primaryLabel
-            showOverlayGuides: root.showGuides
-        }
-    }
-
-    Component {
-        id: splitSurface
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.margins: 14
-            spacing: 14
-
-            VideoPane {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                sourceUrl: root.primarySource
-                labelText: root.primaryLabel
-            }
-
-            VideoPane {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                sourceUrl: root.secondarySource
-                labelText: root.secondaryLabel
-                showOverlayGuides: root.showGuides
-            }
+            text: "No source"
+            color: "#6b6560"
+            font.pixelSize: 16
         }
     }
 }

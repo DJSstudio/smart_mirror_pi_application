@@ -1,1 +1,1 @@
-"""SQLite database helpers."""
+"""Database layer."""

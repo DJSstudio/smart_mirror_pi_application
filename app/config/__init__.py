@@ -1,1 +1,1 @@
-"""Application configuration helpers."""
+"""Application configuration."""

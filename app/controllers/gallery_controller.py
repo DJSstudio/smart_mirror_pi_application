@@ -1,13 +1,22 @@
+"""Gallery controller — video listing, selection, and workflow dispatch.
+
+Exposed to QML as `galleryController`.
+"""
 from __future__ import annotations
 
+import logging
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
+from app.models.entities import VideoRecord
 from app.services.gallery_service import GalleryService
 from app.services.playback_service import PlaybackService
+
+LOGGER = logging.getLogger(__name__)
 
 
 class GalleryController(QObject):
     changed = Signal()
+    videosChanged = Signal()
 
     def __init__(
         self,
@@ -18,26 +27,33 @@ class GalleryController(QObject):
         session_controller,
     ) -> None:
         super().__init__()
-        self._gallery_service = gallery_service
-        self._playback_service = playback_service
-        self._app_controller = app_controller
-        self._session_controller = session_controller
-        self._videos: list[dict[str, object]] = []
-        self._selected_ids: list[str] = []
-        self._error_message = ""
-        self.refresh()
+        self._gallery = gallery_service
+        self._playback = playback_service
+        self._app = app_controller
+        self._session_ctrl = session_controller
 
-    @Property("QVariantList", notify=changed)
-    def videos(self):
-        return self._videos
+        self._videos: list[VideoRecord] = []
+        self._selected_ids: list[str] = []  # max 2
 
-    @Property("QVariantList", notify=changed)
-    def selectedIds(self):
-        return self._selected_ids
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
 
-    @Property(str, notify=changed)
-    def errorMessage(self) -> str:
-        return self._error_message
+    @Property(list, notify=videosChanged)
+    def videos(self) -> list:
+        return [v.to_dict() for v in self._videos]
+
+    @Property(int, notify=changed)
+    def videoCount(self) -> int:
+        return len(self._videos)
+
+    @Property(list, notify=changed)
+    def selectedIds(self) -> list:
+        return list(self._selected_ids)
+
+    @Property(int, notify=changed)
+    def selectedCount(self) -> int:
+        return len(self._selected_ids)
 
     @Property(bool, notify=changed)
     def canCompare(self) -> bool:
@@ -47,10 +63,17 @@ class GalleryController(QObject):
     def canLiveCompare(self) -> bool:
         return len(self._selected_ids) == 1
 
+    # ------------------------------------------------------------------
+    # Slots
+    # ------------------------------------------------------------------
+
     @Slot()
     def refresh(self) -> None:
-        self._videos = [video.to_dict() for video in self._gallery_service.list_videos()]
-        self._selected_ids = [video_id for video_id in self._selected_ids if any(item["id"] == video_id for item in self._videos)]
+        session = self._session_ctrl.activeSession
+        session_id = session.get("id") if session else None
+        self._videos = self._gallery.list_videos(session_id=session_id)
+        self._selected_ids = []
+        self.videosChanged.emit()
         self.changed.emit()
 
     @Slot(str)
@@ -63,61 +86,55 @@ class GalleryController(QObject):
 
     @Slot()
     def clearSelection(self) -> None:
-        self._selected_ids.clear()
+        self._selected_ids = []
         self.changed.emit()
 
     @Slot(str)
-    def openVideo(self, video_id: str) -> None:
-        video = self._gallery_service.get_video(video_id)
+    def playVideo(self, video_id: str) -> None:
+        video = self._gallery.get_video(video_id)
         if video is None:
-            self._set_error("Video not found")
+            self._app.showError("Video not found.")
             return
-        self._playback_service.show_video(video)
-        self._app_controller.show_player_page()
-        self._app_controller.showStatus(f"Opened {video.title}")
+        self._playback.open_video(video)
+        self._app.show_player()
 
     @Slot()
-    def startCompare(self) -> None:
-        if len(self._selected_ids) != 2:
-            self._set_error("Select exactly two looks to compare.")
+    def compareSelected(self) -> None:
+        if not self.canCompare:
+            self._app.showError("Select exactly 2 videos to compare.")
             return
-        left = self._gallery_service.get_video(self._selected_ids[0])
-        right = self._gallery_service.get_video(self._selected_ids[1])
+        left = self._gallery.get_video(self._selected_ids[0])
+        right = self._gallery.get_video(self._selected_ids[1])
         if left is None or right is None:
-            self._set_error("One of the selected videos no longer exists.")
+            self._app.showError("One or more selected videos could not be loaded.")
             return
-        self._playback_service.show_compare(left, right)
-        self._app_controller.show_compare_page()
-        self._app_controller.showStatus("Compare view opened")
+        self._playback.open_compare(left, right)
+        self._app.show_compare()
 
     @Slot()
-    def startLiveCompare(self) -> None:
-        if len(self._selected_ids) != 1:
-            self._set_error("Select one look for live compare.")
+    def liveCompareSelected(self) -> None:
+        if not self.canLiveCompare:
+            self._app.showError("Select exactly 1 video for live compare.")
             return
-        video = self._gallery_service.get_video(self._selected_ids[0])
+        video = self._gallery.get_video(self._selected_ids[0])
         if video is None:
-            self._set_error("Selected video no longer exists.")
+            self._app.showError("Selected video could not be loaded.")
             return
         try:
-            self._playback_service.start_live_compare(video)
-            self._app_controller.show_live_compare_page()
-            self._app_controller.showStatus("Live compare opened")
+            self._playback.open_live_compare(video)
+            self._app.show_live_compare()
         except Exception as exc:  # noqa: BLE001
-            self._set_error(str(exc))
+            self._app.showError(str(exc))
 
     @Slot(str)
     def deleteVideo(self, video_id: str) -> None:
-        video = self._gallery_service.delete_video(video_id)
-        if video is None:
-            self._set_error("Video not found")
-            return
-        self._gallery_service.delete_video_files(video)
+        deleted = self._gallery.delete_video(video_id)
+        if deleted:
+            self._app.showStatus(f"Deleted {deleted.title}")
+        if video_id in self._selected_ids:
+            self._selected_ids.remove(video_id)
         self.refresh()
-        self._session_controller.refresh()
-        self._app_controller.showStatus(f"Deleted {video.title}")
 
-    def _set_error(self, message: str) -> None:
-        self._error_message = message
-        self.changed.emit()
-        self._app_controller.showError(message)
+    @Slot(str)
+    def isSelected(self, video_id: str) -> bool:
+        return video_id in self._selected_ids

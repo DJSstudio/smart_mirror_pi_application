@@ -1,120 +1,219 @@
 # Smart Mirror Pi
 
-Debian-first Raspberry Pi smart mirror application built from scratch with `PySide6 + QML`, local Python services, and SQLite. The current repository does not reuse the old Android-migrated Linux code; it only mirrors the product behavior and UI intent from the reference repos.
+A production-grade Debian-native smart mirror application for Raspberry Pi.  
+Built with PySide6 + QML, SQLite, ffmpeg, and rpicam-vid.
 
-## What this app does
+---
 
-- Runs two persistent top-level windows:
-  - `ControlWindow` on Display 1 for all interaction
-  - `MirrorWindow` on Display 2 as fullscreen output-only surface
-- Keeps the mirror black by default
-- Activates the mirror only for:
-  - recording preview
-  - video playback
-  - compare
-  - live compare
-- Returns the mirror to black after those workflows end
-- Stores sessions and recorded looks in local SQLite
+## Architecture overview
 
-## Repository layout
-
-- `app/`: Python application code, QML, services, controllers, platform adapters
-- `config/`: default JSON configuration
-- `systemd/`: systemd service unit
-- `scripts/`: install, run, and autostart helpers
-
-## Runtime dependencies
-
-Install Python dependencies with:
-
-```bash
-python3 -m pip install -r requirements.txt
+```
+smart_mirror_pi/
+├── app/
+│   ├── main.py                  ← Entry point
+│   ├── config/                  ← Paths, logging, settings schema
+│   ├── models/                  ← Data entities (dataclasses)
+│   ├── database/                ← SQLite connection + repositories
+│   ├── services/                ← Core domain services
+│   │   ├── camera_service.py
+│   │   ├── recording_service.py
+│   │   ├── mirror_display_service.py   ← Mirror state machine
+│   │   ├── playback_service.py
+│   │   ├── gallery_service.py
+│   │   ├── session_service.py
+│   │   ├── settings_service.py
+│   │   └── screen_manager.py
+│   ├── controllers/             ← QML-facing Python controllers
+│   ├── platform/                ← Camera adapters (Pi CSI, USB)
+│   ├── media/                   ← ffmpeg/ffprobe wrappers
+│   └── qml/
+│       ├── ControlWindow.qml    ← Display 1 (controls + navigation)
+│       ├── MirrorWindow.qml     ← Display 2 (always exists, defaults black)
+│       ├── components/          ← Reusable QML components
+│       └── pages/               ← Individual page views
+├── config/
+│   └── settings.json            ← Persistent settings
+├── data/                        ← Created at runtime
+│   ├── videos/
+│   ├── thumbnails/
+│   ├── temp/
+│   ├── logs/
+│   └── smart_mirror.db
+├── systemd/
+│   └── smart-mirror.service     ← systemd user service
+├── scripts/
+│   ├── install_deps.sh          ← One-shot dependency installer
+│   ├── setup_autostart.sh       ← Enable systemd service
+│   └── run_dev.sh               ← Development launch helper
+└── requirements.txt
 ```
 
-Install Pi system packages with:
+---
+
+## Two-screen model
+
+| Display   | Window          | Default state  | Activates when…                    |
+|-----------|-----------------|----------------|------------------------------------|
+| Display 1 | ControlWindow   | Always visible | Boot                               |
+| Display 2 | MirrorWindow    | Pure black     | Recording / playback / compare starts |
+
+The MirrorWindow **never** closes or re-opens; it transitions between idle (black) and active states via `MirrorDisplayService`.
+
+### Mirror states
+
+| State          | Trigger                        |
+|----------------|--------------------------------|
+| `idle`         | Boot, after any feature ends   |
+| `live_preview` | Recording starts               |
+| `video`        | Video playback opens           |
+| `compare`      | Compare workflow opens         |
+| `live_compare` | Live compare workflow opens    |
+| `test_pattern` | Settings → Test Mirror         |
+
+---
+
+## Raspberry Pi setup
+
+### 1. Flash Raspberry Pi OS (Bookworm 64-bit)
+
+Use Raspberry Pi Imager.  Enable SSH, set hostname, Wi-Fi, user `pi`.
+
+### 2. Clone the repo
 
 ```bash
-./scripts/install_pi_dependencies.sh
+cd ~
+git clone <your-repo-url> smart_mirror_pi
+cd smart_mirror_pi
 ```
 
-You also need the Raspberry Pi camera userspace that provides `rpicam-vid` if you want CSI camera support. USB webcam fallback uses `/dev/video*` through `ffmpeg`.
-
-## Running locally
+### 3. Install system dependencies
 
 ```bash
+chmod +x scripts/install_deps.sh
+./scripts/install_deps.sh
+```
+
+This installs: ffmpeg, rpicam-apps, Qt6 multimedia libs, Noto fonts, v4l-utils, and creates a Python venv.
+
+### 4. Run once to verify
+
+```bash
+chmod +x scripts/run_dev.sh
 ./scripts/run_dev.sh
 ```
 
-The app stores data under:
+Two windows will appear.  If you only have one screen, both are placed on it (mirror stays black below the UI).
 
-- `~/.local/share/smart-mirror-pi/data/videos`
-- `~/.local/share/smart-mirror-pi/data/thumbnails`
-- `~/.local/share/smart-mirror-pi/data/smart_mirror.sqlite3`
-- `~/.local/share/smart-mirror-pi/logs/smart_mirror.log`
+### 5. Configure screens
 
-## Screen assignment
+Open **Settings → Screens** in the UI and set:
+- Control screen index: the index of your touch/control display
+- Mirror screen index: the index of the mirror/secondary display
 
-Default config lives in [`config/smart_mirror.json`](config/smart_mirror.json).
+Then press **Apply Screen Assignment**.
 
-Key settings:
-
-- `control_screen_index`
-- `mirror_screen_index`
-- `camera_backend`
-- `camera_device`
-- `mirror_orientation_degrees`
-- `compare_fill_crop`
-
-User overrides are written to `~/.config/smart-mirror-pi/config.json` from the Settings page.
-
-Use `-1` for either screen index to enable auto-selection.
-
-- Auto control screen: smallest detected display
-- Auto mirror screen: largest detected display other than the control screen
-
-## Camera architecture
-
-- `RaspberryPiCameraAdapter`
-  - uses `rpicam-vid`
-  - streams low-latency H.264 preview to local UDP ports
-  - records H.264, then remuxes to MP4 for review/save
-- `UsbCameraAdapter`
-  - uses `ffmpeg` and `v4l2`
-  - previews to UDP and records directly to MP4
-
-The control window and mirror window use separate preview URLs, so live preview, record preview, and live compare stay split cleanly across the two screens.
-
-## Mirror state model
-
-- Boot: idle black
-- Home/dashboard: idle black
-- Start recording: active
-- Stop recording: idle black
-- Open playback: active
-- Close playback: idle black
-- Open compare: active
-- Close compare: idle black
-- Open live compare: active
-- Close live compare: idle black
-
-The mirror window is never destroyed during runtime. It stays resident and only changes render mode.
-
-## Autostart on boot
-
-Review [`systemd/smart-mirror.service`](systemd/smart-mirror.service), then install it:
+### 6. Enable autostart on boot
 
 ```bash
+chmod +x scripts/setup_autostart.sh
 ./scripts/setup_autostart.sh
 ```
 
-Before enabling:
+On next boot the app launches automatically under the graphical session.
 
-1. Set the correct service `User=` if your Pi user is not `pi`.
-2. Make sure the repo lives at the final target path.
-3. Create the virtualenv and install `requirements.txt`.
+```bash
+# Check status
+systemctl --user status smart-mirror
 
-## Notes
+# Watch live logs
+journalctl --user -u smart-mirror -f
 
-- The QML shell is production-oriented but still expects the Pi to have a working graphical session and Qt Multimedia backend.
-- If only one screen is connected, the app will still run, but control and mirror will land on the same display.
-- `mpv` is listed as a dependency for field debugging and optional fallback workflows, though the current implementation uses Qt Multimedia for playback surfaces.
+# Disable autostart
+systemctl --user disable --now smart-mirror
+```
+
+---
+
+## Configuration
+
+Edit `config/settings.json` (or use the Settings screen in the UI):
+
+| Key                         | Default       | Description                              |
+|-----------------------------|---------------|------------------------------------------|
+| `camera_backend`            | `"auto"`      | `"auto"` / `"raspberry_pi"` / `"usb"`   |
+| `camera_device`             | `""`          | Explicit `/dev/videoN` path              |
+| `camera_width`              | `1280`        | Capture resolution width                 |
+| `camera_height`             | `720`         | Capture resolution height                |
+| `camera_fps`                | `30`          | Frames per second                        |
+| `camera_bitrate`            | `8000000`     | Encoding bitrate (bps)                   |
+| `mirror_orientation_degrees`| `0`           | 0 / 90 / 180 / 270                       |
+| `compare_fill_crop`         | `true`        | Crop-to-fill compare panes               |
+| `control_screen_index`      | `0`           | Qt screen index for control window       |
+| `mirror_screen_index`       | `1`           | Qt screen index for mirror window        |
+| `log_level`                 | `"INFO"`      | `DEBUG` / `INFO` / `WARNING`             |
+
+---
+
+## Camera backends
+
+### Raspberry Pi CSI camera (rpicam-vid)
+- Requires `rpicam-apps` and the camera enabled in `raspi-config`
+- Pipeline: `rpicam-vid` → `ffmpeg tee` → UDP preview streams + H.264 capture file
+- Capture is remuxed H.264 → MP4 before review/save
+
+### USB webcam (V4L2 via ffmpeg)
+- Auto-detects `/dev/video*` devices
+- Pipeline: `ffmpeg -f v4l2` → UDP preview streams + MP4 capture
+- No remux needed (output is already MP4)
+
+---
+
+## Workflow summary
+
+### Record a look
+1. **Dashboard → Record a Look**
+2. 3-second countdown (mirror stays black)
+3. Camera starts → live preview on **mirror** + small preview on control screen
+4. Press **Stop Recording**
+5. Mirror returns to black; clip is remuxed for review
+6. Review clip locally, press **Save Look** or **Discard**
+7. Saved → gallery
+
+### Gallery → Compare
+1. **Gallery** — long-press two cards to select them
+2. **Compare** → synchronized side-by-side on both screens
+
+### Gallery → Live Compare
+1. **Gallery** — long-press one card to select it
+2. **Live Compare** → saved video (left) + live camera (right) on mirror
+
+---
+
+## Development notes
+
+```bash
+# Activate venv
+source venv/bin/activate
+
+# Run with debug logging
+LOG_LEVEL=DEBUG ./scripts/run_dev.sh
+
+# Single-screen development (no Raspberry Pi)
+# The app works on any Linux desktop with a webcam.
+# Set mirror_screen_index = 0 so both windows share one screen.
+```
+
+### System dependencies for macOS development
+
+```bash
+brew install ffmpeg
+pip install PySide6
+# Note: rpicam-vid is Pi-only; the USB adapter works with any webcam
+```
+
+---
+
+## Logs
+
+Log files are written to `data/logs/smart_mirror.log` with rotation (5 MB, 3 backups).  
+Live logs: `journalctl --user -u smart-mirror -f`

@@ -1,27 +1,39 @@
+"""Screen detection and window placement."""
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPoint, QSize
+from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QGuiApplication, QScreen
+from PySide6.QtWidgets import QApplication
 
-from app.platform.screen_utils import screen_area, screen_to_descriptor
 from app.services.settings_service import SettingsService
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class DisplayAssignment:
+class ScreenAssignment:
     control_screen: QScreen
     mirror_screen: QScreen
-    screens: list[QScreen]
+    single_screen_mode: bool
 
 
 class ScreenManager:
+    """Detects connected screens and assigns windows to them.
+
+    Rules:
+    • If two or more screens are present, screen index 0 → control,
+      screen index 1 → mirror (overrideable via settings).
+    • If only one screen is present, both windows share it
+      (single_screen_mode = True).  The mirror window is placed in the
+      bottom half of the screen so the control window remains usable.
+    """
+
     def __init__(self, app: QGuiApplication, settings: SettingsService) -> None:
         self._app = app
         self._settings = settings
-        self._logger = logging.getLogger(__name__)
         self._control_window = None
         self._mirror_window = None
 
@@ -29,130 +41,71 @@ class ScreenManager:
         self._control_window = control_window
         self._mirror_window = mirror_window
 
-    def describe_screens(self) -> list[dict[str, object]]:
-        primary = self._app.primaryScreen()
-        return [
-            screen_to_descriptor(screen, index, primary)
-            for index, screen in enumerate(self._app.screens())
-        ]
-
-    def current_assignment(self) -> DisplayAssignment:
+    def apply_assignment(self) -> ScreenAssignment:
         screens = self._app.screens()
         if not screens:
-            raise RuntimeError("No displays detected")
-        control_index = self._safe_index(self._settings.get("control_screen_index"), screens)
-        mirror_index = self._safe_index(self._settings.get("mirror_screen_index"), screens)
+            raise RuntimeError("No screens detected.")
 
-        if control_index is not None:
-            control_screen = screens[control_index]
-        elif mirror_index is not None:
-            control_screen = self._pick_control_screen(screens, exclude=screens[mirror_index])
+        control_idx = int(self._settings.get("control_screen_index", 0))
+        mirror_idx = int(self._settings.get("mirror_screen_index", 1))
+
+        single = len(screens) == 1
+        if single:
+            control_screen = screens[0]
+            mirror_screen = screens[0]
         else:
-            control_screen = self._pick_control_screen(screens)
+            control_screen = screens[min(control_idx, len(screens) - 1)]
+            mirror_screen = screens[min(mirror_idx, len(screens) - 1)]
 
-        if mirror_index is not None:
-            mirror_screen = screens[mirror_index]
-        elif control_index is not None:
-            mirror_screen = self._pick_mirror_screen(screens, control_screen)
-        else:
-            mirror_screen = self._pick_mirror_screen(screens, control_screen)
+        LOGGER.info(
+            "Screen assignment — control: %s  mirror: %s  single=%s",
+            control_screen.name(), mirror_screen.name(), single,
+        )
 
-        if len(screens) > 1 and mirror_screen == control_screen:
-            mirror_screen = self._pick_mirror_screen(screens, control_screen)
+        if self._control_window is not None:
+            ctrl_geom = control_screen.geometry()
+            self._control_window.setGeometry(
+                ctrl_geom.x(), ctrl_geom.y(),
+                ctrl_geom.width(), ctrl_geom.height(),
+            )
+            self._control_window.setScreen(control_screen)
+            self._control_window.showFullScreen()
 
-        return DisplayAssignment(
+        if self._mirror_window is not None:
+            mir_geom = mirror_screen.geometry()
+            if single:
+                # In single-screen mode place mirror behind the control window
+                # (it stays black — the user won't normally see it)
+                self._mirror_window.setGeometry(
+                    mir_geom.x(), mir_geom.y(),
+                    mir_geom.width(), mir_geom.height(),
+                )
+            else:
+                self._mirror_window.setGeometry(
+                    mir_geom.x(), mir_geom.y(),
+                    mir_geom.width(), mir_geom.height(),
+                )
+            self._mirror_window.setScreen(mirror_screen)
+            self._mirror_window.showFullScreen()
+
+        return ScreenAssignment(
             control_screen=control_screen,
             mirror_screen=mirror_screen,
-            screens=screens,
+            single_screen_mode=single,
         )
 
-    def apply_assignment(self) -> DisplayAssignment:
-        assignment = self.current_assignment()
-        self._log_assignment(assignment)
-        if self._control_window is not None:
-            self._place_window(
-                self._control_window,
-                assignment.control_screen,
-                activate=True,
-            )
-        if self._mirror_window is not None:
-            self._place_window(
-                self._mirror_window,
-                assignment.mirror_screen,
-                activate=False,
-            )
-        return assignment
-
-    @staticmethod
-    def _safe_index(raw_value, screens: list[QScreen]) -> int | None:
-        try:
-            index = int(raw_value)
-        except (TypeError, ValueError):
-            return None
-        return index if 0 <= index < len(screens) else None
-
-    @staticmethod
-    def _pick_mirror_screen(screens: list[QScreen], control_screen: QScreen) -> QScreen:
-        if len(screens) == 1:
-            return screens[0]
-        candidates = [screen for screen in screens if screen != control_screen]
-        candidates.sort(key=screen_area, reverse=True)
-        return candidates[0]
-
-    @staticmethod
-    def _pick_control_screen(
-        screens: list[QScreen],
-        exclude: QScreen | None = None,
-    ) -> QScreen:
-        if len(screens) == 1:
-            return screens[0]
-        candidates = [screen for screen in screens if screen != exclude] if exclude else list(screens)
-        candidates.sort(key=screen_area)
-        return candidates[0]
-
-    def _log_assignment(self, assignment: DisplayAssignment) -> None:
-        descriptors = self.describe_screens()
-        self._logger.info("Detected screens: %s", descriptors)
-        self._logger.info(
-            "Using control=%s mirror=%s",
-            assignment.control_screen.name(),
-            assignment.mirror_screen.name(),
-        )
-
-    @staticmethod
-    def _place_window(window, screen: QScreen, *, activate: bool) -> None:
-        geometry = screen.geometry()
-        window_name = ""
-        if hasattr(window, "objectName"):
-            try:
-                window_name = window.objectName()
-            except Exception:  # noqa: BLE001
-                window_name = ""
-        if hasattr(window, "setScreen"):
-            window.setScreen(screen)
-        if hasattr(window, "setPosition"):
-            window.setPosition(QPoint(geometry.x(), geometry.y()))
-        if hasattr(window, "setX"):
-            window.setX(geometry.x())
-        if hasattr(window, "setY"):
-            window.setY(geometry.y())
-        if hasattr(window, "resize"):
-            window.resize(QSize(geometry.width(), geometry.height()))
-        if hasattr(window, "show"):
-            window.show()
-        if hasattr(window, "showFullScreen"):
-            window.showFullScreen()
-        if hasattr(window, "raise_"):
-            window.raise_()
-        if activate and hasattr(window, "requestActivate"):
-            window.requestActivate()
-        logging.getLogger(__name__).info(
-            "Placed window name=%s on screen=%s geometry=(%s,%s %sx%s) activate=%s",
-            window_name,
-            screen.name(),
-            geometry.x(),
-            geometry.y(),
-            geometry.width(),
-            geometry.height(),
-            activate,
-        )
+    def available_screens(self) -> list[dict[str, object]]:
+        screens = self._app.screens()
+        primary = self._app.primaryScreen()
+        result = []
+        for i, screen in enumerate(screens):
+            geom = screen.geometry()
+            result.append({
+                "index": i,
+                "name": screen.name(),
+                "width": geom.width(),
+                "height": geom.height(),
+                "isPrimary": screen == primary,
+                "label": f"Screen {i}: {screen.name()} ({geom.width()}×{geom.height()})",
+            })
+        return result

@@ -1,1 +1,1 @@
-"""Domain models."""
+"""Data models."""

@@ -1,29 +1,37 @@
+"""Logging setup."""
 from __future__ import annotations
 
 import logging
+import logging.handlers
 from pathlib import Path
 
-from app.config.paths import AppPaths
 
+def configure_logging(paths, level: str = "INFO") -> None:
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    log_file = paths.logs_dir / "smart_mirror.log"
 
-def configure_logging(paths: AppPaths, level_name: str = "INFO") -> Path:
-    level = getattr(logging, level_name.upper(), logging.INFO)
-    log_path = paths.logs_dir / "smart_mirror.log"
-
-    formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-    )
     root = logging.getLogger()
-    root.setLevel(level)
-    root.handlers.clear()
+    root.setLevel(numeric_level)
 
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-    root.addHandler(stream_handler)
+    fmt = logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    root.addHandler(file_handler)
+    console = logging.StreamHandler()
+    console.setLevel(numeric_level)
+    console.setFormatter(fmt)
+    root.addHandler(console)
 
-    logging.getLogger("PySide6").setLevel(logging.WARNING)
-    return log_path
+    try:
+        rotating = logging.handlers.RotatingFileHandler(
+            log_file, maxBytes=5_000_000, backupCount=3
+        )
+        rotating.setLevel(numeric_level)
+        rotating.setFormatter(fmt)
+        root.addHandler(rotating)
+    except OSError:
+        pass
+
+    # Suppress noisy third-party loggers
+    logging.getLogger("urllib3").setLevel(logging.WARNING)

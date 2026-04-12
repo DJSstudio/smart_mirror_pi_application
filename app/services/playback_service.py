@@ -1,5 +1,7 @@
+"""Playback service — orchestrates video playback and mirror display for gallery workflows."""
 from __future__ import annotations
 
+import logging
 from PySide6.QtCore import QObject, Property, Signal
 
 from app.models.entities import VideoRecord
@@ -7,8 +9,16 @@ from app.services.camera_service import CameraService
 from app.services.mirror_display_service import MirrorDisplayService
 from app.services.settings_service import SettingsService
 
+LOGGER = logging.getLogger(__name__)
+
 
 class PlaybackService(QObject):
+    """Exposed to QML as `playbackService`.
+
+    Tracks the current playback session (mode + sources) and keeps
+    MirrorDisplayService in sync.
+    """
+
     changed = Signal()
 
     def __init__(
@@ -19,15 +29,17 @@ class PlaybackService(QObject):
         settings: SettingsService,
     ) -> None:
         super().__init__()
-        self._camera_service = camera_service
-        self._mirror_display = mirror_display
+        self._camera = camera_service
+        self._mirror = mirror_display
         self._mode = "idle"
         self._primary_source = ""
         self._secondary_source = ""
         self._primary_label = ""
         self._secondary_label = ""
-        self._status_text = "Playback idle"
-        self._compare_fill_crop = bool(settings.get("compare_fill_crop", True))
+
+    # ------------------------------------------------------------------
+    # QML-readable properties
+    # ------------------------------------------------------------------
 
     @Property(str, notify=changed)
     def mode(self) -> str:
@@ -49,59 +61,50 @@ class PlaybackService(QObject):
     def secondaryLabel(self) -> str:
         return self._secondary_label
 
-    @Property(str, notify=changed)
-    def statusText(self) -> str:
-        return self._status_text
+    # ------------------------------------------------------------------
+    # Actions (called from GalleryController)
+    # ------------------------------------------------------------------
 
-    @Property(bool, notify=changed)
-    def compareFillCrop(self) -> bool:
-        return self._compare_fill_crop
-
-    def show_video(self, video: VideoRecord) -> None:
+    def open_video(self, video: VideoRecord) -> None:
+        """Show a single video on the mirror and expose it to QML."""
+        url = video.to_dict()["sourceUrl"]
         self._mode = "video"
-        self._primary_source = video.to_dict()["sourceUrl"]  # type: ignore[assignment]
+        self._primary_source = str(url)
         self._secondary_source = ""
         self._primary_label = video.title
         self._secondary_label = ""
-        self._status_text = f"Playing {video.title}"
-        self._mirror_display.show_video(self._primary_source)
+        self._mirror.show_video(self._primary_source)
         self.changed.emit()
 
-    def show_compare(self, left: VideoRecord, right: VideoRecord) -> None:
-        left_url = left.to_dict()["sourceUrl"]  # type: ignore[index]
-        right_url = right.to_dict()["sourceUrl"]  # type: ignore[index]
+    def open_compare(self, left: VideoRecord, right: VideoRecord) -> None:
+        left_url = str(left.to_dict()["sourceUrl"])
+        right_url = str(right.to_dict()["sourceUrl"])
         self._mode = "compare"
-        self._primary_source = str(left_url)
-        self._secondary_source = str(right_url)
+        self._primary_source = left_url
+        self._secondary_source = right_url
         self._primary_label = left.title
         self._secondary_label = right.title
-        self._status_text = f"Comparing {left.title} and {right.title}"
-        self._mirror_display.show_compare(self._primary_source, self._secondary_source)
+        self._mirror.show_compare(left_url, right_url)
         self.changed.emit()
 
-    def start_live_compare(self, video: VideoRecord) -> None:
-        preview = self._camera_service.start_preview_only()
-        video_url = video.to_dict()["sourceUrl"]  # type: ignore[index]
+    def open_live_compare(self, video: VideoRecord) -> None:
+        preview = self._camera.start_preview_only()
+        video_url = str(video.to_dict()["sourceUrl"])
         self._mode = "live_compare"
-        self._primary_source = str(video_url)
+        self._primary_source = video_url
         self._secondary_source = preview.control_preview_url
         self._primary_label = video.title
         self._secondary_label = "Live"
-        self._status_text = f"Live compare with {video.title}"
-        self._mirror_display.show_live_compare(
-            self._primary_source,
-            preview.mirror_preview_url,
-        )
+        self._mirror.show_live_compare(video_url, preview.mirror_preview_url)
         self.changed.emit()
 
     def close_active(self) -> None:
         if self._mode == "live_compare":
-            self._camera_service.stop(discard=True)
+            self._camera.stop(discard=True)
         self._mode = "idle"
         self._primary_source = ""
         self._secondary_source = ""
         self._primary_label = ""
         self._secondary_label = ""
-        self._status_text = "Playback idle"
-        self._mirror_display.show_idle_black()
+        self._mirror.show_idle_black()
         self.changed.emit()

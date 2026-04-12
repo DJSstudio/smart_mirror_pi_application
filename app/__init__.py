@@ -1,1 +1,1 @@
-"""Smart Mirror Pi application package."""
+"""Smart Mirror Pi — Debian-native smart mirror application."""
