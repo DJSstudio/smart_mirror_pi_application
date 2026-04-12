@@ -1,6 +1,6 @@
 {
-  "control_screen_index": 0,
-  "mirror_screen_index": 1,
+  "control_screen_index": -1,
+  "mirror_screen_index": -1,
   "camera_backend": "auto",
   "camera_device": "",
   "camera_width": 1280,

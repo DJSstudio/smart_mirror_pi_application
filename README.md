@@ -67,6 +67,11 @@ Key settings:
 
 User overrides are written to `~/.config/smart-mirror-pi/config.json` from the Settings page.
 
+Use `-1` for either screen index to enable auto-selection.
+
+- Auto control screen: smallest detected display
+- Auto mirror screen: largest detected display other than the control screen
+
 ## Camera architecture
 
 - `RaspberryPiCameraAdapter`
