@@ -12,7 +12,7 @@ LOGGER = logging.getLogger(__name__)
 
 _VALID_PAGES = frozenset({
     "dashboard", "recording", "gallery",
-    "player", "compare", "live_compare", "settings",
+    "player", "compare", "live_compare", "settings", "export",
 })
 
 
@@ -77,6 +77,9 @@ class AppController(QObject):
 
     def show_live_compare(self) -> None:
         self._navigate("live_compare", close_media=False)
+
+    def showExport(self) -> None:
+        self._navigate("export", close_media=True)
 
     # ------------------------------------------------------------------
     # Status / error

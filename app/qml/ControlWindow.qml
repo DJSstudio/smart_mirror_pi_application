@@ -146,6 +146,7 @@ ApplicationWindow {
                     case "compare":      return "pages/ComparePage.qml"
                     case "live_compare": return "pages/LiveComparePage.qml"
                     case "settings":     return "pages/SettingsPage.qml"
+                    case "export":       return "pages/ExportPage.qml"
                     default:             return "pages/DashboardPage.qml"
                 }
             }

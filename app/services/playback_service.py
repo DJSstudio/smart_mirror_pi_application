@@ -36,6 +36,7 @@ class PlaybackService(QObject):
         self._secondary_source = ""
         self._primary_label = ""
         self._secondary_label = ""
+        self._primary_video_id = ""
 
     # ------------------------------------------------------------------
     # QML-readable properties
@@ -61,6 +62,10 @@ class PlaybackService(QObject):
     def secondaryLabel(self) -> str:
         return self._secondary_label
 
+    @Property(str, notify=changed)
+    def currentVideoId(self) -> str:
+        return self._primary_video_id
+
     # ------------------------------------------------------------------
     # Actions — decorated as @Slot so QML can call them directly
     # ------------------------------------------------------------------
@@ -75,6 +80,7 @@ class PlaybackService(QObject):
         self._secondary_source = ""
         self._primary_label = ""
         self._secondary_label = ""
+        self._primary_video_id = ""
         self._mirror.show_idle_black()
         self.changed.emit()
 
@@ -90,6 +96,7 @@ class PlaybackService(QObject):
         self._secondary_source = ""
         self._primary_label = video.title
         self._secondary_label = ""
+        self._primary_video_id = video.id
         self._mirror.show_video(url)
         self.changed.emit()
 

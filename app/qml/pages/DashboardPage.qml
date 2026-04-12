@@ -83,6 +83,19 @@ Item {
                 description: "Configure camera, screens and display"
                 onTapped: appController.showSettings()
             }
+
+            // View on Phone
+            WorkflowCard {
+                Layout.fillWidth: true
+                icon: "📱"
+                label: "View on Phone"
+                description: "Scan QR to browse & download recordings"
+                enabled: sessionController ? sessionController.videoCount > 0 : false
+                onTapped: {
+                    if (galleryController) galleryController.refresh()
+                    exportController.showSessionQr()
+                }
+            }
         }
 
         Item { Layout.fillHeight: true }

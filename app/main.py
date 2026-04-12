@@ -12,6 +12,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from app.config.logging_config import configure_logging
 from app.config.paths import AppPaths
 from app.controllers.app_controller import AppController
+from app.controllers.export_controller import ExportController
 from app.controllers.gallery_controller import GalleryController
 from app.controllers.recording_controller import RecordingController
 from app.controllers.session_controller import SessionController
@@ -26,6 +27,7 @@ from app.services.recording_service import RecordingService
 from app.services.screen_manager import ScreenManager
 from app.services.session_service import SessionService
 from app.services.settings_service import SettingsService
+from app.services.share_server import ShareServer
 
 LOGGER = logging.getLogger(__name__)
 
@@ -115,6 +117,8 @@ def main() -> int:
         mirror_display=mirror_display,
         settings=settings,
     )
+    share_server = ShareServer()
+    share_server.start()
 
     # ----------------------------------------------------------------
     # Qt application
@@ -149,6 +153,14 @@ def main() -> int:
         gallery_controller=gallery_ctrl,
     )
     app_ctrl.attach_recording_controller(recording_ctrl)
+    export_ctrl = ExportController(
+        gallery_service=gallery_service,
+        session_service=session_service,
+        mirror_display=mirror_display,
+        share_server=share_server,
+        temp_dir=paths.temp_dir,
+        app_controller=app_ctrl,
+    )
     settings_ctrl = SettingsController(
         settings=settings,
         mirror_display=mirror_display,
@@ -167,6 +179,7 @@ def main() -> int:
     ctx.setContextProperty("galleryController", gallery_ctrl)
     ctx.setContextProperty("recordingController", recording_ctrl)
     ctx.setContextProperty("settingsController", settings_ctrl)
+    ctx.setContextProperty("exportController", export_ctrl)
     ctx.setContextProperty("mirrorDisplay", mirror_display)
     ctx.setContextProperty("playbackService", playback_service)
 
@@ -206,6 +219,10 @@ def main() -> int:
             pass
         try:
             camera_service.stop(discard=True)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            share_server.stop()
         except Exception:  # noqa: BLE001
             pass
         db.close()

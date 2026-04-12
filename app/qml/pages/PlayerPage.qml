@@ -66,6 +66,15 @@ Item {
 
             AppButton {
                 Layout.fillWidth: true
+                text: "Export to Phone"
+                onClicked: {
+                    if (exportController && playbackService)
+                        exportController.exportVideo(playbackService.currentVideoId)
+                }
+            }
+
+            AppButton {
+                Layout.fillWidth: true
                 text: "Close Player"
                 onClicked: {
                     if (playbackService) playbackService.close_active()

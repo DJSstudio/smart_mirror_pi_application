@@ -48,6 +48,12 @@ Item {
                 onClicked: galleryController.liveCompareSelected()
             }
 
+            AppButton {
+                text: "Export"
+                enabled: galleryController.canPlay
+                onClicked: exportController.exportVideo(galleryController.selectedIds[0])
+            }
+
             Item { Layout.fillWidth: true }
 
             AppButton {

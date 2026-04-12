@@ -4,4 +4,7 @@
 # Qt/QML UI framework
 PySide6>=6.6.0
 
+# QR code generation (for share/export feature)
+qrcode[pil]>=7.4
+
 # (All other runtime tools are system packages — see README for apt-get list)

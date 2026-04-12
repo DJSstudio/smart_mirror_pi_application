@@ -41,6 +41,7 @@ ApplicationWindow {
                     case "compare":       return compareComp
                     case "live_compare":  return liveCompareComp
                     case "test_pattern":  return testPatternComp
+                    case "qr_code":       return qrCodeComp
                     default:              return null   // idle → pure black
                 }
             }
@@ -200,6 +201,47 @@ ApplicationWindow {
                 looping: true
                 muted: true
                 showLiveBadge: true
+            }
+        }
+    }
+
+    // ── QR code display ──────────────────────────────────────────────
+    Component {
+        id: qrCodeComp
+        Item {
+            Rectangle {
+                anchors.fill: parent
+                color: "#000000"
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 36
+
+                    // White mat around the QR so it scans from any distance
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        width: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.45
+                        height: width
+                        radius: 20
+                        color: "white"
+
+                        Image {
+                            anchors { fill: parent; margins: 16 }
+                            source: mirrorDisplay.primarySource
+                            fillMode: Image.PreserveAspectFit
+                            smooth: false   // keep QR pixels crisp
+                            cache: false
+                        }
+                    }
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: mirrorDisplay.primaryLabel
+                        font.pixelSize: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.03
+                        color: "#c8c0b8"
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
             }
         }
     }
