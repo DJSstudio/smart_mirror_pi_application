@@ -99,27 +99,21 @@ class ScreenManager:
 def _place_fullscreen(window, screen) -> None:
     """Place a Qt window fullscreen on the given screen.
 
-    Wayland and X11 require different approaches:
-
-    • Wayland — setGeometry() is ignored by the compositor (Wayland has no
-      global window coordinate space).  setScreen() is the correct API: it
-      tells the compositor which output to use before showFullScreen().
-
-    • X11/xcb — setScreen() before first show is unreliable.  The correct
-      sequence is show() → setGeometry() (moves window to target screen's
-      coordinate space) → showFullScreen().
+    Sequence that works on both X11 and Wayland:
+      1. setScreen()    — tell Qt (and the Wayland compositor) which output to
+                          use.  Must be called before the window is shown.
+      2. show()         — create the native/Wayland surface.
+      3. setGeometry()  — move to the screen's coordinate rect.  On X11 this
+                          is the primary mechanism; on Wayland compositors that
+                          honour xdg-output coordinates it also works.
+      4. showFullScreen() — request fullscreen; compositor uses the output
+                            that was set in steps 1–3.
     """
-    import os  # noqa: PLC0415
-    platform = os.environ.get("QT_QPA_PLATFORM", "")
-
-    if "wayland" in platform:
-        window.setScreen(screen)
-        window.showFullScreen()
-    else:
-        geom = screen.geometry()
-        window.show()
-        window.setGeometry(geom.x(), geom.y(), geom.width(), geom.height())
-        window.showFullScreen()
+    geom = screen.geometry()
+    window.setScreen(screen)
+    window.show()
+    window.setGeometry(geom.x(), geom.y(), geom.width(), geom.height())
+    window.showFullScreen()
 
 
 def _map_touch_to_screen(screen_name: str) -> None:
