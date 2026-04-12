@@ -1,0 +1,18 @@
+[Unit]
+Description=Smart Mirror Pi application
+After=graphical.target network-online.target
+Wants=graphical.target network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/smart-mirror-pi
+Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/opt/smart-mirror-pi/scripts/start_app.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

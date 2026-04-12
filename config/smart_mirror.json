@@ -1,0 +1,13 @@
+{
+  "control_screen_index": 0,
+  "mirror_screen_index": 1,
+  "camera_backend": "auto",
+  "camera_device": "",
+  "camera_width": 1280,
+  "camera_height": 720,
+  "camera_fps": 30,
+  "camera_bitrate": 8000000,
+  "mirror_orientation_degrees": 0,
+  "compare_fill_crop": true,
+  "log_level": "INFO"
+}
