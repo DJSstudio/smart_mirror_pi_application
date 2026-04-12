@@ -25,10 +25,12 @@ Item {
         Item { Layout.preferredHeight: 4 }
 
         Text {
-            text: sessionController.hasActiveSession
-                ? ("Session active  ·  " + sessionController.videoCount + " look"
-                   + (sessionController.videoCount === 1 ? "" : "s"))
-                : "No active session"
+            text: sessionController
+                ? (sessionController.hasActiveSession
+                    ? ("Session active  ·  " + sessionController.videoCount + " look"
+                       + (sessionController.videoCount === 1 ? "" : "s"))
+                    : "No active session")
+                : ""
             font.pixelSize: 14
             color: "#8c8681"
         }
@@ -57,8 +59,11 @@ Item {
                 icon: "▦"
                 label: "Gallery"
                 description: "Review, compare or play saved looks"
-                enabled: sessionController.videoCount > 0
-                onTapped: { galleryController.refresh(); appController.showGallery() }
+                enabled: sessionController ? sessionController.videoCount > 0 : false
+                onTapped: {
+                    if (galleryController) galleryController.refresh()
+                    if (appController) appController.showGallery()
+                }
             }
 
             // New session

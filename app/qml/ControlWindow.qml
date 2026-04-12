@@ -5,7 +5,6 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 import "components"
-import "pages"
 
 ApplicationWindow {
     id: controlWindow
@@ -21,69 +20,17 @@ ApplicationWindow {
 
     // ── Navigation locked while recording ────────────────────────────
     readonly property bool navLocked:
-        recordingController.isRecording
-        || recordingController.hasReview
-        || recordingController.countdown > 0
+        recordingController ? (recordingController.isRecording
+            || recordingController.hasReview
+            || recordingController.countdown > 0) : false
 
-    // ── Page switcher ────────────────────────────────────────────────
-    Item {
-        id: content
-        anchors { top: parent.top; left: navStrip.right; right: parent.right; bottom: statusBar.top }
-
-        // Gradient background
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0.0; color: "#f4ede8" }
-                GradientStop { position: 1.0; color: "#ece5df" }
-            }
-        }
-
-        Loader {
-            id: pageLoader
-            anchors.fill: parent
-            source: _pageSource(appController.currentPage)
-
-            function _pageSource(page) {
-                switch (page) {
-                    case "dashboard":    return "pages/DashboardPage.qml"
-                    case "recording":    return "pages/RecordingPage.qml"
-                    case "gallery":      return "pages/GalleryPage.qml"
-                    case "player":       return "pages/PlayerPage.qml"
-                    case "compare":      return "pages/ComparePage.qml"
-                    case "live_compare": return "pages/LiveComparePage.qml"
-                    case "settings":     return "pages/SettingsPage.qml"
-                    default:             return "pages/DashboardPage.qml"
-                }
-            }
-
-            // Fade transition between pages
-            Behavior on source {
-                SequentialAnimation {
-                    NumberAnimation { target: pageLoader; property: "opacity"; to: 0; duration: 100 }
-                    PropertyAction  { }
-                    NumberAnimation { target: pageLoader; property: "opacity"; to: 1; duration: 160 }
-                }
-            }
-        }
-    }
-
-    // ── Status / error bar ───────────────────────────────────────────
-    StatusBar {
-        id: statusBar
-        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-        statusText: appController.statusMessage
-        errorText: appController.errorMessage
-    }
-
-    // ── Side navigation strip (compact) ─────────────────────────────
+    // ── Side navigation strip — defined first so content can anchor to it ──
     Rectangle {
         id: navStrip
         anchors { left: parent.left; top: parent.top; bottom: statusBar.top }
         width: 52
         color: "#e8e0d9"
-        border.width: 0
+        z: 2
 
         ColumnLayout {
             anchors { fill: parent; topMargin: 16; bottomMargin: 16 }
@@ -98,19 +45,18 @@ ApplicationWindow {
                 ]
 
                 Rectangle {
-                    width: 40; height: 40
-                    radius: 10
+                    width: 40; height: 40; radius: 10
                     Layout.alignment: Qt.AlignHCenter
-                    color: appController.currentPage === modelData.page
+                    color: appController && appController.currentPage === modelData.page
                            ? "#d0c8c0" : "transparent"
-                    border.width: appController.currentPage === modelData.page ? 1 : 0
+                    border.width: appController && appController.currentPage === modelData.page ? 1 : 0
                     border.color: "#c4b8ac"
 
                     Text {
                         anchors.centerIn: parent
                         text: modelData.icon
                         font.pixelSize: 18
-                        color: appController.currentPage === modelData.page
+                        color: appController && appController.currentPage === modelData.page
                                ? "#3c3530" : "#9d9590"
                     }
 
@@ -125,10 +71,14 @@ ApplicationWindow {
                         cursorShape: Qt.PointingHandCursor
                         enabled: !controlWindow.navLocked || modelData.page === "recording"
                         onClicked: {
+                            if (!appController) return
                             switch (modelData.page) {
                                 case "dashboard": appController.showDashboard(); break
                                 case "recording": appController.showRecording(); break
-                                case "gallery":   galleryController.refresh(); appController.showGallery(); break
+                                case "gallery":
+                                    if (galleryController) galleryController.refresh()
+                                    appController.showGallery()
+                                    break
                                 case "settings":  appController.showSettings(); break
                             }
                         }
@@ -140,15 +90,71 @@ ApplicationWindow {
 
             // Mirror status dot
             Rectangle {
-                width: 12; height: 12
-                radius: 999
+                width: 12; height: 12; radius: 999
                 Layout.alignment: Qt.AlignHCenter
-                color: mirrorDisplay.mode === "idle" ? "#c4b8ac" : "#5a9a6a"
+                color: mirrorDisplay && mirrorDisplay.mode !== "idle" ? "#5a9a6a" : "#c4b8ac"
                 ToolTip.visible: dotMa.containsMouse
-                ToolTip.text: "Mirror: " + mirrorDisplay.mode
+                ToolTip.text: "Mirror: " + (mirrorDisplay ? mirrorDisplay.mode : "—")
                 MouseArea { id: dotMa; anchors.fill: parent; hoverEnabled: true }
             }
         }
     }
 
+    // ── Status / error bar ───────────────────────────────────────────
+    StatusBar {
+        id: statusBar
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        statusText: appController ? appController.statusMessage : ""
+        errorText:  appController ? appController.errorMessage  : ""
+    }
+
+    // ── Page content area (right of nav strip, above status bar) ─────
+    Item {
+        id: content
+        anchors {
+            top: parent.top
+            left: navStrip.right
+            right: parent.right
+            bottom: statusBar.top
+        }
+
+        // Warm gradient background
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: "#f4ede8" }
+                GradientStop { position: 1.0; color: "#ece5df" }
+            }
+        }
+
+        // Page loader
+        Loader {
+            id: pageLoader
+            anchors.fill: parent
+            source: appController ? _pageQml(appController.currentPage) : ""
+
+            function _pageQml(page) {
+                switch (page) {
+                    case "dashboard":    return "pages/DashboardPage.qml"
+                    case "recording":    return "pages/RecordingPage.qml"
+                    case "gallery":      return "pages/GalleryPage.qml"
+                    case "player":       return "pages/PlayerPage.qml"
+                    case "compare":      return "pages/ComparePage.qml"
+                    case "live_compare": return "pages/LiveComparePage.qml"
+                    case "settings":     return "pages/SettingsPage.qml"
+                    default:             return "pages/DashboardPage.qml"
+                }
+            }
+
+            // Fade between pages
+            Behavior on source {
+                SequentialAnimation {
+                    NumberAnimation { target: pageLoader; property: "opacity"; to: 0;   duration: 90  }
+                    PropertyAction  { }
+                    NumberAnimation { target: pageLoader; property: "opacity"; to: 1.0; duration: 150 }
+                }
+            }
+        }
+    }
 }

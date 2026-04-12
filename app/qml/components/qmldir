@@ -1,0 +1,6 @@
+AppButton 1.0 AppButton.qml
+PageHeader 1.0 PageHeader.qml
+VideoCard 1.0 VideoCard.qml
+MediaSurface 1.0 MediaSurface.qml
+CountdownOverlay 1.0 CountdownOverlay.qml
+StatusBar 1.0 StatusBar.qml

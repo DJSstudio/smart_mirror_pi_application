@@ -4,9 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QGuiApplication, QScreen
-from PySide6.QtWidgets import QApplication
 
 from app.services.settings_service import SettingsService
 

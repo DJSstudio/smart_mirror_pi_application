@@ -27,7 +27,7 @@ ApplicationWindow {
         Loader {
             id: modeLoader
             anchors.fill: parent
-            sourceComponent: _pickComponent(mirrorDisplay.mode)
+            sourceComponent: mirrorDisplay ? _pickComponent(mirrorDisplay.mode) : null
 
             function _pickComponent(mode) {
                 switch (mode) {
