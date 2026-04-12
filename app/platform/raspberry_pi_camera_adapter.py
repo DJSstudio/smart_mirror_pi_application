@@ -189,7 +189,7 @@ def _ffmpeg_tee_cmd(targets: str) -> list[str]:
 
 
 def _udp(port: int) -> str:
-    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=5000000"
+    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=524288"
 
 
 def _terminate(proc: subprocess.Popen, label: str) -> None:

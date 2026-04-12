@@ -63,25 +63,10 @@ class ScreenManager:
         )
 
         if self._control_window is not None:
-            ctrl_geom = control_screen.geometry()
-            # Correct Qt 6 xcb sequence: show windowed → move to target screen
-            # geometry → then go fullscreen. setScreen() before first show is
-            # unreliable; geometry on an already-fullscreen window is ignored by WM.
-            self._control_window.show()
-            self._control_window.setGeometry(
-                ctrl_geom.x(), ctrl_geom.y(),
-                ctrl_geom.width(), ctrl_geom.height(),
-            )
-            self._control_window.showFullScreen()
+            _place_fullscreen(self._control_window, control_screen)
 
         if self._mirror_window is not None:
-            mir_geom = mirror_screen.geometry()
-            self._mirror_window.show()
-            self._mirror_window.setGeometry(
-                mir_geom.x(), mir_geom.y(),
-                mir_geom.width(), mir_geom.height(),
-            )
-            self._mirror_window.showFullScreen()
+            _place_fullscreen(self._mirror_window, mirror_screen)
 
         # Map touchscreen input to the control screen so touch events don't
         # land on the mirror display.
@@ -109,6 +94,32 @@ class ScreenManager:
                 "label": f"Screen {i}: {screen.name()} ({geom.width()}×{geom.height()})",
             })
         return result
+
+
+def _place_fullscreen(window, screen) -> None:
+    """Place a Qt window fullscreen on the given screen.
+
+    Wayland and X11 require different approaches:
+
+    • Wayland — setGeometry() is ignored by the compositor (Wayland has no
+      global window coordinate space).  setScreen() is the correct API: it
+      tells the compositor which output to use before showFullScreen().
+
+    • X11/xcb — setScreen() before first show is unreliable.  The correct
+      sequence is show() → setGeometry() (moves window to target screen's
+      coordinate space) → showFullScreen().
+    """
+    import os  # noqa: PLC0415
+    platform = os.environ.get("QT_QPA_PLATFORM", "")
+
+    if "wayland" in platform:
+        window.setScreen(screen)
+        window.showFullScreen()
+    else:
+        geom = screen.geometry()
+        window.show()
+        window.setGeometry(geom.x(), geom.y(), geom.width(), geom.height())
+        window.showFullScreen()
 
 
 def _map_touch_to_screen(screen_name: str) -> None:

@@ -263,7 +263,11 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-tune", "zerolatency",
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
-        "-g", str(max(fps, 10)),
+        # A keyframe every ~5 frames means the UDP preview recovers from any
+        # lost/late packet within 5 frames instead of waiting a full second.
+        # This eliminates the block-pixelation artefacts on the live preview.
+        # The trade-off (slightly larger MP4 file) is negligible at 8 Mbps.
+        "-g", str(max(fps // 6, 3)),
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         "-f", "tee", tee,
@@ -271,4 +275,7 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
 
 
 def _udp(port: int) -> str:
-    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=5000000"
+    # fifo_size: sender-side queue in bytes.  5 MB was the old value —
+    # that let ffmpeg buffer ~5 s of video before dropping, adding visible
+    # latency.  512 KB keeps the pipeline moving with only ~0.5 s headroom.
+    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=524288"
