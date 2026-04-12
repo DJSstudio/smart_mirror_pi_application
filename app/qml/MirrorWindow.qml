@@ -100,7 +100,9 @@ ApplicationWindow {
             VideoOutput {
                 id: liveOut
                 anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
+                // Crop to fill the whole mirror — no black bars.
+                // A real mirror shows edge-to-edge; letterboxing would look wrong.
+                fillMode: VideoOutput.PreserveAspectCrop
 
                 transform: Rotation {
                     angle: mirrorDisplay.orientationDegrees
@@ -127,7 +129,7 @@ ApplicationWindow {
             VideoOutput {
                 id: videoOut
                 anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
+                fillMode: VideoOutput.PreserveAspectCrop
 
                 transform: Rotation {
                     angle: mirrorDisplay.orientationDegrees
