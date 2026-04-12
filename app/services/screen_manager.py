@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
 from dataclasses import dataclass
 
 from PySide6.QtGui import QGuiApplication, QScreen
@@ -81,6 +83,11 @@ class ScreenManager:
             )
             self._mirror_window.showFullScreen()
 
+        # Map touchscreen input to the control screen so touch events don't
+        # land on the mirror display.
+        if not single:
+            _map_touch_to_screen(control_screen.name())
+
         return ScreenAssignment(
             control_screen=control_screen,
             mirror_screen=mirror_screen,
@@ -102,3 +109,37 @@ class ScreenManager:
                 "label": f"Screen {i}: {screen.name()} ({geom.width()}×{geom.height()})",
             })
         return result
+
+
+def _map_touch_to_screen(screen_name: str) -> None:
+    """Use xinput to restrict all touch/pointer input devices to the control screen.
+
+    On Raspberry Pi with two HDMI displays the touchscreen defaults to the
+    combined virtual desktop, so touch events that physically land on the mirror
+    display (the wrong screen) also fire inside the control window's coordinate
+    space.  Mapping the device to the control output fixes the coordinate offset
+    and ensures the mirror display ignores touch entirely.
+
+    Silently skips if xinput is not installed or no touch device is found.
+    """
+    if not shutil.which("xinput"):
+        LOGGER.debug("xinput not found — skipping touch mapping")
+        return
+    try:
+        result = subprocess.run(
+            ["xinput", "list", "--name-only"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for raw_name in result.stdout.splitlines():
+            name = raw_name.strip()
+            if not name:
+                continue
+            lower = name.lower()
+            if any(k in lower for k in ("touch", "wacom", "pen", "digitizer", "stylus")):
+                subprocess.run(
+                    ["xinput", "--map-to-output", name, screen_name],
+                    capture_output=True, timeout=5,
+                )
+                LOGGER.info("Mapped touch device %r → %s", name, screen_name)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("Touch mapping skipped: %s", exc)

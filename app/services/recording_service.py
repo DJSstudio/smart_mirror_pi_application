@@ -39,13 +39,27 @@ class RecordingService:
     def prepare_review(self, capture: CompletedCapture) -> PreparedRecording:
         """Ensure the capture is in MP4 format, ready for Qt playback."""
         if capture.file_format == "mp4":
+            if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
+                raise RuntimeError(
+                    "Recording was too short — no video data was captured. "
+                    "Try recording for at least 2 seconds."
+                )
             return PreparedRecording(file_path=capture.file_path, backend=capture.backend)
 
         if capture.file_format == "h264":
+            if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
+                raise RuntimeError(
+                    "Recording was too short — no video data was captured. "
+                    "Try recording for at least 2 seconds."
+                )
             fps = int(self._settings.get("camera_fps", 30))
             mp4_path = capture.file_path.with_suffix(".mp4")
             LOGGER.info("Remuxing H.264 → MP4: %s → %s", capture.file_path, mp4_path)
-            remux_h264_to_mp4(capture.file_path, mp4_path, fps)
+            try:
+                remux_h264_to_mp4(capture.file_path, mp4_path, fps)
+            except Exception as exc:  # noqa: BLE001
+                safe_unlink(capture.file_path)
+                raise RuntimeError(f"Failed to process recording: {exc}") from exc
             safe_unlink(capture.file_path)
             return PreparedRecording(file_path=mp4_path, backend=capture.backend)
 

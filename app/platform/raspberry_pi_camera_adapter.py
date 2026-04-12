@@ -89,13 +89,18 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         )
 
     def stop(self, discard: bool = False) -> CompletedCapture | None:
-        for proc, label in [
-            (self._rpicam_proc, "rpicam-vid"),
-            (self._ffmpeg_proc, "ffmpeg"),
-        ]:
-            if proc:
-                _terminate(proc, label)
+        # Stop rpicam-vid first — this closes its stdout pipe, which sends
+        # EOF to ffmpeg so it can flush and finalise the capture file cleanly.
+        if self._rpicam_proc:
+            _terminate(self._rpicam_proc, "rpicam-vid")
         self._rpicam_proc = None
+
+        # Now wait for ffmpeg to finish writing on its own; only force-kill if hung.
+        if self._ffmpeg_proc:
+            try:
+                self._ffmpeg_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                _terminate(self._ffmpeg_proc, "ffmpeg")
         self._ffmpeg_proc = None
 
         cap_path = self._capture_path
