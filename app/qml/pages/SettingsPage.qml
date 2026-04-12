@@ -87,7 +87,7 @@ Item {
 
                 Switch {
                     checked: settingsController.compareFillCrop
-                    onCheckedChanged: settingsController.setCompareFillCrop(checked)
+                    onToggled: settingsController.setCompareFillCrop(checked)
                 }
             }
 
@@ -202,8 +202,8 @@ Item {
 
             SettingRow {
                 label: "Active session ID"
-                description: sessionController.activeSession
-                             ? sessionController.activeSession.id.substring(0, 16) + "…"
+                description: sessionController.activeSessionShortId.length > 0
+                             ? sessionController.activeSessionShortId + "…"
                              : "None"
             }
 

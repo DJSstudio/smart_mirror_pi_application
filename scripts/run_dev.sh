@@ -62,6 +62,18 @@ if [ -z "${QT_QPA_PLATFORM:-}" ]; then
 fi
 
 echo "Using Qt platform: ${QT_QPA_PLATFORM}"
+
+# ── GStreamer hints for Raspberry Pi ───────────────────────────────────────
+# On Pi Wayland the GStreamer GL sink needs to know which EGL platform to use.
+# Without this the video pipeline can negotiate successfully but output a blank
+# (all-black) frame to the VideoOutput surface.
+if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then
+    export GST_GL_WINDOW="${GST_GL_WINDOW:-wayland}"
+    export GST_GL_PLATFORM="${GST_GL_PLATFORM:-egl}"
+fi
+# Force GStreamer to use the correct Qt multimedia backend when multiple are present.
+export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-glimagesink:257}"
+
 export PYTHONUNBUFFERED=1
 
 exec "${PYTHON}" -m app.main "$@"

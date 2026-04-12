@@ -30,6 +30,33 @@ from app.services.settings_service import SettingsService
 LOGGER = logging.getLogger(__name__)
 
 
+def _check_multimedia_backend() -> None:
+    """Log whether Qt Multimedia has a working backend (GStreamer on Linux).
+
+    Prints a clear actionable message if video will not work, so the user
+    doesn't just see a silent black screen.
+    """
+    try:
+        from PySide6.QtMultimedia import QMediaPlayer  # noqa: PLC0415
+        player = QMediaPlayer()
+        err = player.error()
+        from PySide6.QtMultimedia import QMediaPlayer as QMP  # noqa: PLC0415
+        if err == QMP.Error.NoError:
+            LOGGER.info("Qt Multimedia backend: OK (video preview and playback should work)")
+        else:
+            LOGGER.warning(
+                "Qt Multimedia backend error at startup: %s — video will be black. "
+                "Fix: bash scripts/run_dev.sh --install-gstreamer",
+                player.errorString(),
+            )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "Qt Multimedia could not be imported: %s — video will be black. "
+            "Fix: bash scripts/run_dev.sh --install-gstreamer",
+            exc,
+        )
+
+
 def _load_qml(engine: QQmlApplicationEngine, path: Path):
     before = len(engine.rootObjects())
     engine.load(QUrl.fromLocalFile(str(path)))
@@ -83,6 +110,7 @@ def main() -> int:
     # Qt application
     # ----------------------------------------------------------------
     app = QGuiApplication(sys.argv)
+    _check_multimedia_backend()
     app.setApplicationName("Smart Mirror Pi")
     app.setOrganizationName("Smart Mirror")
 

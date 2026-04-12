@@ -49,6 +49,13 @@ class SessionController(QObject):
     def hasActiveSession(self) -> bool:
         return self._active is not None
 
+    @Property(str, notify=changed)
+    def activeSessionShortId(self) -> str:
+        """First 16 chars of the active session ID, or empty string."""
+        if self._active:
+            return str(self._active.get("id", ""))[:16]
+        return ""
+
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
