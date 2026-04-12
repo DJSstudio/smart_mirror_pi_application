@@ -31,30 +31,40 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _check_multimedia_backend() -> None:
-    """Log whether Qt Multimedia has a working backend (GStreamer on Linux).
+    """Log Qt Multimedia backend status with actionable diagnostics."""
+    import os  # noqa: PLC0415
 
-    Prints a clear actionable message if video will not work, so the user
-    doesn't just see a silent black screen.
-    """
+    # Show where Qt is looking for multimedia plugins
+    try:
+        from PySide6.QtCore import QLibraryInfo  # noqa: PLC0415
+        plugin_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)
+        mm_dir = os.path.join(plugin_dir, "multimedia")
+        if os.path.isdir(mm_dir):
+            plugins = os.listdir(mm_dir)
+            LOGGER.info("Qt multimedia plugin dir: %s  plugins: %s", mm_dir, plugins)
+        else:
+            LOGGER.warning(
+                "Qt multimedia plugin dir does not exist: %s  "
+                "pip-PySide6 on this platform may not ship a multimedia backend. "
+                "Try: sudo apt install python3-pyside6.qtmultimedia",
+                mm_dir,
+            )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Could not query Qt plugin path: %s", exc)
+
+    # Try creating a MediaPlayer to confirm backend works
     try:
         from PySide6.QtMultimedia import QMediaPlayer  # noqa: PLC0415
         player = QMediaPlayer()
-        err = player.error()
-        from PySide6.QtMultimedia import QMediaPlayer as QMP  # noqa: PLC0415
-        if err == QMP.Error.NoError:
-            LOGGER.info("Qt Multimedia backend: OK (video preview and playback should work)")
+        if player.error() == QMediaPlayer.Error.NoError:
+            LOGGER.info("Qt Multimedia backend: OK")
         else:
             LOGGER.warning(
-                "Qt Multimedia backend error at startup: %s — video will be black. "
-                "Fix: bash scripts/run_dev.sh --install-gstreamer",
+                "Qt Multimedia backend not available: %s  video will be black.",
                 player.errorString(),
             )
     except Exception as exc:  # noqa: BLE001
-        LOGGER.warning(
-            "Qt Multimedia could not be imported: %s — video will be black. "
-            "Fix: bash scripts/run_dev.sh --install-gstreamer",
-            exc,
-        )
+        LOGGER.warning("Qt Multimedia import failed: %s", exc)
 
 
 def _load_qml(engine: QQmlApplicationEngine, path: Path):
