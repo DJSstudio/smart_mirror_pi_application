@@ -251,11 +251,15 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
     return [
         "ffmpeg",
         "-hide_banner", "-loglevel", "warning",
-        "-fflags", "nobuffer",
         "-f", "v4l2",
         *input_fmt_args,
         "-framerate", str(fps),
         "-video_size", f"{actual_w}x{actual_h}",
+        # Large input thread queue: the all-I-frame encoder (-g 1) can momentarily
+        # stall consuming frames on a Pi.  Without buffering, V4L2 times out on
+        # VIDIOC_DQBUF and kills the capture.  4096 frames of queue gives the
+        # encoder ~135 s of slack at 30fps — plenty to absorb any encoder hiccup.
+        "-thread_queue_size", "4096",
         "-i", device,
         "-an",
         "-c:v", "libx264",
