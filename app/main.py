@@ -4,7 +4,7 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -123,6 +123,16 @@ def main() -> int:
         assignment.mirror_screen.name(),
     )
     mirror_display.show_idle_black()
+
+    def _refresh_window_placement() -> None:
+        refreshed = screen_manager.apply_assignment()
+        LOGGER.info(
+            "Window placement refreshed | control=%s mirror=%s",
+            refreshed.control_screen.name(),
+            refreshed.mirror_screen.name(),
+        )
+
+    QTimer.singleShot(0, _refresh_window_placement)
 
     def _shutdown() -> None:
         LOGGER.info("Shutting down Smart Mirror Pi")

@@ -70,9 +70,17 @@ class ScreenManager:
         assignment = self.current_assignment()
         self._log_assignment(assignment)
         if self._control_window is not None:
-            self._place_window(self._control_window, assignment.control_screen)
+            self._place_window(
+                self._control_window,
+                assignment.control_screen,
+                activate=True,
+            )
         if self._mirror_window is not None:
-            self._place_window(self._mirror_window, assignment.mirror_screen)
+            self._place_window(
+                self._mirror_window,
+                assignment.mirror_screen,
+                activate=False,
+            )
         return assignment
 
     @staticmethod
@@ -112,8 +120,14 @@ class ScreenManager:
         )
 
     @staticmethod
-    def _place_window(window, screen: QScreen) -> None:
+    def _place_window(window, screen: QScreen, *, activate: bool) -> None:
         geometry = screen.geometry()
+        window_name = ""
+        if hasattr(window, "objectName"):
+            try:
+                window_name = window.objectName()
+            except Exception:  # noqa: BLE001
+                window_name = ""
         if hasattr(window, "setScreen"):
             window.setScreen(screen)
         if hasattr(window, "setPosition"):
@@ -124,5 +138,21 @@ class ScreenManager:
             window.setY(geometry.y())
         if hasattr(window, "resize"):
             window.resize(QSize(geometry.width(), geometry.height()))
+        if hasattr(window, "show"):
+            window.show()
         if hasattr(window, "showFullScreen"):
             window.showFullScreen()
+        if hasattr(window, "raise_"):
+            window.raise_()
+        if activate and hasattr(window, "requestActivate"):
+            window.requestActivate()
+        logging.getLogger(__name__).info(
+            "Placed window name=%s on screen=%s geometry=(%s,%s %sx%s) activate=%s",
+            window_name,
+            screen.name(),
+            geometry.x(),
+            geometry.y(),
+            geometry.width(),
+            geometry.height(),
+            activate,
+        )
