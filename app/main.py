@@ -214,8 +214,10 @@ def main() -> int:
     # The login controller will navigate to dashboard after a successful scan.
     login_ctrl.startLogin()
 
-    # Refresh screen placement after the event loop starts (handles late screen init).
-    QTimer.singleShot(200, screen_manager.apply_assignment)
+    # Safety re-check: re-assert fullscreen after the compositor has had time to
+    # settle (late screen init on Pi).  _place_fullscreen skips showNormal() on
+    # the second call so this cannot race with the initial placement above.
+    QTimer.singleShot(800, screen_manager.apply_assignment)
 
     # ----------------------------------------------------------------
     # Shutdown

@@ -104,6 +104,11 @@ def _place_fullscreen(window, screen) -> None:
                             use.  Must be called before the window is shown.
       2. showNormal()     — ensure the window is not in a conflicting state
                             (e.g. previously minimised or maximised).
+                            ONLY called on the first show (window not yet visible).
+                            Calling it again after showFullScreen() races with the
+                            compositor and can leave the window stuck as a small
+                            floating rectangle — the root cause of the intermittent
+                            "partial mirror" bug.
       3. setGeometry()    — move to the screen's coordinate rect.  On X11 this
                             is the primary mechanism; on Wayland compositors that
                             honour xdg-output coordinates it also works.
@@ -117,7 +122,12 @@ def _place_fullscreen(window, screen) -> None:
     """
     geom = screen.geometry()
     window.setScreen(screen)
-    window.showNormal()
+    if not window.isVisible():
+        # First call: reset any conflicting window state before going fullscreen.
+        # On subsequent calls we deliberately skip showNormal() — calling it after
+        # showFullScreen() has already been requested races with the compositor and
+        # can revert the window to windowed mode intermittently.
+        window.showNormal()
     window.setGeometry(geom.x(), geom.y(), geom.width(), geom.height())
     window.showFullScreen()
 
