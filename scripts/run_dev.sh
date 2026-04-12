@@ -63,11 +63,6 @@ fi
 
 echo "Using Qt platform: ${QT_QPA_PLATFORM}"
 
-# ── System library path — helps pip-PySide6 find system GStreamer ──────────
-# pip-PySide6 bundles its own Qt but links GStreamer dynamically at runtime.
-# Without this, dlopen("libgstreamer-1.0.so.0") silently fails on ARM64 Pi.
-export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu/gstreamer-1.0${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-
 # ── GStreamer hints for Raspberry Pi ───────────────────────────────────────
 # On Pi Wayland the GStreamer GL sink needs to know which EGL platform to use.
 # Without this the video pipeline can negotiate successfully but output a blank
