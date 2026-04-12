@@ -14,7 +14,21 @@ else
     PYTHON="$(command -v python3)"
 fi
 
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+# ── Qt platform auto-detection ─────────────────────────────────────────────
+# Priority: explicit env override → Wayland → X11 → eglfs (Pi framebuffer)
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        export QT_QPA_PLATFORM="wayland"
+    elif [ -n "${DISPLAY:-}" ]; then
+        export QT_QPA_PLATFORM="xcb"
+    else
+        # No display server — use eglfs (Pi direct framebuffer, no X11 needed)
+        export QT_QPA_PLATFORM="eglfs"
+        export QT_QPA_EGLFS_ALWAYS_SET_MODE=1
+    fi
+fi
+
+echo "Using Qt platform: ${QT_QPA_PLATFORM}"
 export PYTHONUNBUFFERED=1
 
 exec "${PYTHON}" -m app.main "$@"
