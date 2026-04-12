@@ -40,6 +40,7 @@ class SessionRecord:
     started_at: str
     ended_at: str | None
     active: bool
+    device_id: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -48,6 +49,7 @@ class SessionRecord:
             "startedAt": self.started_at,
             "endedAt": self.ended_at or "",
             "active": self.active,
+            "deviceId": self.device_id,
         }
 
 

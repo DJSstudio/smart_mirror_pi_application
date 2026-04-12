@@ -31,9 +31,12 @@ ApplicationWindow {
     Rectangle {
         id: navStrip
         anchors { left: parent.left; top: parent.top; bottom: statusBar.top }
-        width: 52
+        width: appController && appController.currentPage === "login" ? 0 : 52
+        visible: width > 0
         color: "#e8e0d9"
         z: 2
+
+        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
 
         ColumnLayout {
             anchors { fill: parent; topMargin: 16; bottomMargin: 16 }
@@ -139,6 +142,7 @@ ApplicationWindow {
 
             function _pageQml(page) {
                 switch (page) {
+                    case "login":        return "pages/LoginPage.qml"
                     case "dashboard":    return "pages/DashboardPage.qml"
                     case "recording":    return "pages/RecordingPage.qml"
                     case "gallery":      return "pages/GalleryPage.qml"

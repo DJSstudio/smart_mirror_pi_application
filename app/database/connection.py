@@ -26,7 +26,8 @@ class DatabaseManager:
                 name        TEXT NOT NULL,
                 started_at  TEXT NOT NULL,
                 ended_at    TEXT,
-                active      INTEGER NOT NULL DEFAULT 1
+                active      INTEGER NOT NULL DEFAULT 1,
+                device_id   TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS videos (
@@ -50,6 +51,14 @@ class DatabaseManager:
                 ON videos(session_id, created_at DESC);
         """)
         self.connection.commit()
+        # Migration: add device_id to existing databases that predate this column.
+        try:
+            self.connection.execute(
+                "ALTER TABLE sessions ADD COLUMN device_id TEXT NOT NULL DEFAULT ''"
+            )
+            self.connection.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
     def close(self) -> None:
         if self._conn is not None:

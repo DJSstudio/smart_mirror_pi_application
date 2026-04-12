@@ -20,14 +20,14 @@ class SessionRepository:
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
 
-    def create_session(self, name: str) -> SessionRecord:
+    def create_session(self, name: str, device_id: str = "") -> SessionRecord:
         sid = str(uuid.uuid4())
         now = _now_iso()
         conn = self._db.connection
         conn.execute("UPDATE sessions SET active=0, ended_at=? WHERE active=1", (now,))
         conn.execute(
-            "INSERT INTO sessions (id, name, started_at, active) VALUES (?,?,?,1)",
-            (sid, name, now),
+            "INSERT INTO sessions (id, name, started_at, active, device_id) VALUES (?,?,?,1,?)",
+            (sid, name, now, device_id),
         )
         conn.commit()
         return self.get_active_session()  # type: ignore[return-value]
@@ -37,6 +37,40 @@ class SessionRepository:
             "SELECT * FROM sessions WHERE active=1 ORDER BY started_at DESC LIMIT 1"
         ).fetchone()
         return _row_to_session(row) if row else None
+
+    def get_latest_session_for_device(self, device_id: str) -> SessionRecord | None:
+        """Return the most recent session that belongs to *device_id*."""
+        row = self._db.connection.execute(
+            "SELECT * FROM sessions WHERE device_id=? ORDER BY started_at DESC LIMIT 1",
+            (device_id,),
+        ).fetchone()
+        return _row_to_session(row) if row else None
+
+    def activate_session(self, session_id: str, device_id: str) -> SessionRecord | None:
+        """Make *session_id* the active session and claim it for *device_id*.
+
+        Any currently active sessions (other than *session_id*) are ended.
+        """
+        conn = self._db.connection
+        now = _now_iso()
+        conn.execute(
+            "UPDATE sessions SET active=0, ended_at=? WHERE active=1 AND id!=?",
+            (now, session_id),
+        )
+        conn.execute(
+            "UPDATE sessions SET active=1, ended_at=NULL, device_id=? WHERE id=?",
+            (device_id, session_id),
+        )
+        conn.commit()
+        return self.get_active_session()
+
+    def claim_current_session(self, device_id: str) -> None:
+        """Stamp *device_id* onto the active session if it has no owner yet."""
+        self._db.connection.execute(
+            "UPDATE sessions SET device_id=? WHERE active=1 AND (device_id IS NULL OR device_id='')",
+            (device_id,),
+        )
+        self._db.connection.commit()
 
     def list_sessions(self, limit: int = 20) -> list[SessionRecord]:
         rows = self._db.connection.execute(
@@ -141,6 +175,7 @@ def _row_to_session(row) -> SessionRecord:
         started_at=str(row["started_at"]),
         ended_at=row["ended_at"],
         active=bool(row["active"]),
+        device_id=str(row["device_id"] or ""),
     )
 
 

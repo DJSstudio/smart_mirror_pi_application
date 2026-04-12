@@ -14,6 +14,7 @@ from app.config.paths import AppPaths
 from app.controllers.app_controller import AppController
 from app.controllers.export_controller import ExportController
 from app.controllers.gallery_controller import GalleryController
+from app.controllers.login_controller import LoginController
 from app.controllers.recording_controller import RecordingController
 from app.controllers.session_controller import SessionController
 from app.controllers.settings_controller import SettingsController
@@ -153,6 +154,15 @@ def main() -> int:
         gallery_controller=gallery_ctrl,
     )
     app_ctrl.attach_recording_controller(recording_ctrl)
+    login_ctrl = LoginController(
+        share_server=share_server,
+        session_service=session_service,
+        session_ctrl=session_ctrl,
+        gallery_ctrl=gallery_ctrl,
+        mirror_display=mirror_display,
+        app_controller=app_ctrl,
+        temp_dir=paths.temp_dir,
+    )
     export_ctrl = ExportController(
         gallery_service=gallery_service,
         session_service=session_service,
@@ -180,6 +190,7 @@ def main() -> int:
     ctx.setContextProperty("recordingController", recording_ctrl)
     ctx.setContextProperty("settingsController", settings_ctrl)
     ctx.setContextProperty("exportController", export_ctrl)
+    ctx.setContextProperty("loginController", login_ctrl)
     ctx.setContextProperty("mirrorDisplay", mirror_display)
     ctx.setContextProperty("playbackService", playback_service)
 
@@ -199,13 +210,11 @@ def main() -> int:
         assignment.single_screen_mode,
     )
 
-    # Ensure mirror starts black
-    mirror_display.show_idle_black()
+    # Start QR login flow: show QR on mirror, login page on control window.
+    # The login controller will navigate to dashboard after a successful scan.
+    login_ctrl.start_login()
 
-    # Initial gallery load
-    gallery_ctrl.refresh()
-
-    # Refresh placement after the event loop starts (handles late screen init)
+    # Refresh screen placement after the event loop starts (handles late screen init).
     QTimer.singleShot(200, screen_manager.apply_assignment)
 
     # ----------------------------------------------------------------

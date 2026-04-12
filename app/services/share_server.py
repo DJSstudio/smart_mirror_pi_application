@@ -16,6 +16,7 @@ keeps reads in the HTTP handler threads consistent.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import secrets
@@ -30,6 +31,7 @@ from typing import Any
 LOGGER = logging.getLogger(__name__)
 
 _EXPORT_TTL = 600   # seconds (10 min)
+_LOGIN_TTL  = 300   # seconds (5 min) — QR refreshes automatically after this
 
 
 @dataclass
@@ -55,8 +57,12 @@ class ShareServer:
         self._session_name = "Smart Mirror"
         self._videos: list[_VideoSnapshot] = []
 
-        # token → (video_id, expiry_epoch)
+        # Export tokens: hash → (video_id, expiry_epoch)
         self._tokens: dict[str, tuple[str, float]] = {}
+
+        # Login tokens: hash → (status, expiry_epoch, device_id | None)
+        # status: 'pending' | 'activated'
+        self._login_tokens: dict[str, tuple[str, float, str | None]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -138,6 +144,66 @@ class ShareServer:
             return None
         return video_id
 
+    # ------------------------------------------------------------------
+    # Login tokens  (QR-based session start / resume)
+    # ------------------------------------------------------------------
+
+    def create_login_token(self) -> tuple[str, str]:
+        """Create a pending login token.
+
+        Returns *(raw_token, token_hash)*.  The raw token is encoded in the
+        QR URL; only the hash is stored in memory.
+        """
+        raw = secrets.token_urlsafe(24)
+        token_hash = hashlib.sha256(raw.encode()).hexdigest()
+        expiry = time.time() + _LOGIN_TTL
+        with self._lock:
+            self._login_tokens[token_hash] = ("pending", expiry, None)
+        LOGGER.debug("Login token created (hash prefix: %s)", token_hash[:8])
+        return raw, token_hash
+
+    def check_login_status(self, token_hash: str) -> tuple[str, str | None]:
+        """Return *(status, device_id)* for a login token.
+
+        *status* is ``'pending'``, ``'activated'``, or ``'expired'``.
+        """
+        with self._lock:
+            entry = self._login_tokens.get(token_hash)
+        if entry is None:
+            return "expired", None
+        status, expiry, device_id = entry
+        if time.time() > expiry:
+            with self._lock:
+                self._login_tokens.pop(token_hash, None)
+            return "expired", None
+        return status, device_id
+
+    def activate_login_token(self, raw_token: str, device_id: str) -> bool:
+        """Mark a login token as activated by *device_id*.
+
+        *raw_token* is the plain-text value from the QR URL.  Returns
+        ``True`` if the token was valid and is now activated.
+        """
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        with self._lock:
+            entry = self._login_tokens.get(token_hash)
+        if entry is None:
+            return False
+        _status, expiry, _did = entry
+        if time.time() > expiry:
+            with self._lock:
+                self._login_tokens.pop(token_hash, None)
+            return False
+        with self._lock:
+            self._login_tokens[token_hash] = ("activated", expiry, device_id)
+        LOGGER.info("Login token activated by device %s", device_id[:8])
+        return True
+
+    def invalidate_login_token(self, token_hash: str) -> None:
+        """Remove a login token (e.g. after successful login or skip)."""
+        with self._lock:
+            self._login_tokens.pop(token_hash, None)
+
     def token_remaining(self, token: str) -> int:
         """Remaining seconds for a token (0 if expired/unknown)."""
         with self._lock:
@@ -179,6 +245,7 @@ class ShareServer:
             def do_GET(self):  # noqa: N802
                 parsed = urllib.parse.urlparse(self.path)
                 path = parsed.path.rstrip("/") or "/"
+                qs = urllib.parse.parse_qs(parsed.query)
                 try:
                     if path in ("/", "/gallery"):
                         self._gallery()
@@ -188,6 +255,13 @@ class ShareServer:
                         self._download(path[len("/download/"):])
                     elif path.startswith("/export/"):
                         self._export(path[len("/export/"):])
+                    elif path == "/qr/activate":
+                        self._qr_activate_page(qs.get("token", [""])[0])
+                    elif path == "/api/qr/confirm":
+                        self._qr_confirm(
+                            qs.get("token", [""])[0],
+                            qs.get("device_id", [""])[0],
+                        )
                     else:
                         self._err(404, "Not found")
                 except Exception as exc:  # noqa: BLE001
@@ -245,6 +319,21 @@ class ShareServer:
                     self._err(410, "Link expired or invalid")
                     return
                 self._download(video_id)
+
+            def _qr_activate_page(self, token: str):
+                """HTML page that auto-generates a device_id and confirms the scan."""
+                html = _LOGIN_HTML.replace("__TOKEN__", _esc(token))
+                self._html(html)
+
+            def _qr_confirm(self, token: str, device_id: str):
+                """JSON endpoint called by the phone browser after device_id generation."""
+                if not token or not device_id:
+                    self._json({"ok": False, "error": "Missing token or device_id"})
+                    return
+                if server.activate_login_token(token, device_id):
+                    self._json({"ok": True})
+                else:
+                    self._json({"ok": False, "error": "Invalid or expired QR code"})
 
             # ── Helpers ──────────────────────────────────────────────────
 
@@ -321,6 +410,70 @@ def _esc(text: str) -> str:
             .replace(">", "&gt;")
             .replace('"', "&quot;")
     )
+
+
+# ---------------------------------------------------------------------------
+# QR login HTML — served when a phone opens /qr/activate?token=<raw>
+# ---------------------------------------------------------------------------
+
+_LOGIN_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Mirror — Start Session</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+     background:#1a1614;color:#f0ebe5;display:flex;align-items:center;
+     justify-content:center;min-height:100vh;padding:24px;text-align:center}
+.card{background:#2a2420;border-radius:20px;padding:36px 28px;max-width:340px;width:100%}
+.icon{font-size:52px;margin-bottom:16px}
+h1{font-size:22px;font-weight:600;margin-bottom:8px}
+.sub{font-size:14px;color:#9d9590;margin-bottom:28px;line-height:1.5}
+.status{font-size:15px;padding:16px;border-radius:12px;background:#3a3028;
+        color:#d0c8c0;transition:background .3s,color .3s}
+.ok{background:#1e3020!important;color:#7de870!important}
+.err{background:#3a2020!important;color:#e87070!important}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">🪞</div>
+  <h1>Smart Mirror</h1>
+  <p class="sub">Connecting to your session&hellip;</p>
+  <div class="status" id="st">Please wait&hellip;</div>
+</div>
+<script>
+function uuid4(){
+  return([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){
+    return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);
+  });
+}
+var token='__TOKEN__';
+var did=localStorage.getItem('mirror_device_id');
+if(!did){did=uuid4();localStorage.setItem('mirror_device_id',did);}
+var st=document.getElementById('st');
+fetch('/api/qr/confirm?token='+encodeURIComponent(token)+'&device_id='+encodeURIComponent(did))
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.ok){
+      st.className='status ok';
+      st.textContent='\u2713 Mirror is ready \u2014 you can put your phone away.';
+    }else{
+      st.className='status err';
+      st.textContent='Error: '+(d.error||'Unknown error. Try scanning again.');
+    }
+  })
+  .catch(function(e){
+    st.className='status err';
+    st.textContent='Could not reach mirror: '+e.message;
+  });
+</script>
+</body>
+</html>
+"""
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 LOGGER = logging.getLogger(__name__)
 
 _VALID_PAGES = frozenset({
-    "dashboard", "recording", "gallery",
+    "login", "dashboard", "recording", "gallery",
     "player", "compare", "live_compare", "settings", "export",
 })
 
@@ -51,6 +51,11 @@ class AppController(QObject):
     # ------------------------------------------------------------------
     # Navigation slots (callable from QML)
     # ------------------------------------------------------------------
+
+    @Slot()
+    def showLogin(self) -> None:
+        # Do NOT close media — the login controller manages mirror state.
+        self._navigate("login", close_media=False)
 
     @Slot()
     def showDashboard(self) -> None:
