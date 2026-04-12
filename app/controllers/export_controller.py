@@ -122,8 +122,9 @@ class ExportController(QObject):
             self._mode = "session"
             self._export_url = url
             self._qr_image_url = qr_path.as_uri()
-            self._mirror.show_qr(qr_path.as_uri(), "Scan to view & download recordings")
+            # Navigate first so close_active() runs before we set the mirror.
             self._app.showExport()
+            self._mirror.show_qr(qr_path.as_uri(), "Scan to view & download recordings")
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("showSessionQr failed: %s", exc)
             self._error = str(exc)
@@ -146,9 +147,10 @@ class ExportController(QObject):
             self._export_url = url
             self._qr_image_url = qr_path.as_uri()
             self._remaining = _EXPORT_TTL
+            # Navigate first so close_active() runs before we set the mirror.
+            self._app.showExport()
             self._mirror.show_qr(qr_path.as_uri(), f"Scan to download  ·  {video.title}")
             self._countdown.start()
-            self._app.showExport()
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("exportVideo failed: %s", exc)
             self._error = str(exc)

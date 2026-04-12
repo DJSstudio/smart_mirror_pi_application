@@ -217,10 +217,10 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     spacing: 36
 
-                    // White mat around the QR so it scans from any distance
+                    // White mat around the QR — large enough to fill most of the mirror
                     Rectangle {
                         Layout.alignment: Qt.AlignHCenter
-                        width: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.45
+                        width: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.75
                         height: width
                         radius: 20
                         color: "white"
