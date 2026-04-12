@@ -100,18 +100,24 @@ def _place_fullscreen(window, screen) -> None:
     """Place a Qt window fullscreen on the given screen.
 
     Sequence that works on both X11 and Wayland:
-      1. setScreen()    — tell Qt (and the Wayland compositor) which output to
-                          use.  Must be called before the window is shown.
-      2. show()         — create the native/Wayland surface.
-      3. setGeometry()  — move to the screen's coordinate rect.  On X11 this
-                          is the primary mechanism; on Wayland compositors that
-                          honour xdg-output coordinates it also works.
+      1. setScreen()      — tell Qt (and the Wayland compositor) which output to
+                            use.  Must be called before the window is shown.
+      2. showNormal()     — ensure the window is not in a conflicting state
+                            (e.g. previously minimised or maximised).
+      3. setGeometry()    — move to the screen's coordinate rect.  On X11 this
+                            is the primary mechanism; on Wayland compositors that
+                            honour xdg-output coordinates it also works.
       4. showFullScreen() — request fullscreen; compositor uses the output
                             that was set in steps 1–3.
+
+    IMPORTANT: do NOT add Qt.WindowStaysOnBottomHint to the window's flags.
+    On X11 and many Wayland compositors that hint sets a sub-normal window
+    level which silently prevents showFullScreen() from succeeding, leaving
+    the window as a centred floating rectangle.
     """
     geom = screen.geometry()
     window.setScreen(screen)
-    window.show()
+    window.showNormal()
     window.setGeometry(geom.x(), geom.y(), geom.width(), geom.height())
     window.showFullScreen()
 

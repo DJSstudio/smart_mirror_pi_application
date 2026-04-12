@@ -15,7 +15,11 @@ ApplicationWindow {
     width: 1920
     height: 1080
     title: "Mirror"
-    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnBottomHint
+    // Do NOT add WindowStaysOnBottomHint here — on X11 and many Wayland
+    // compositors that hint sets a sub-normal window level which silently
+    // prevents showFullScreen() from working.  The mirror is on its own
+    // dedicated display so there is nothing it needs to stay below.
+    flags: Qt.Window | Qt.FramelessWindowHint
     color: "#000000"
 
     // ── Root black canvas ────────────────────────────────────────────
