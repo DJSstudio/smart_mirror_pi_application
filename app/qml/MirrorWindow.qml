@@ -224,6 +224,23 @@ ApplicationWindow {
             audioOutput: AudioOutput { muted: pane.muted; volume: pane.muted ? 0 : 1 }
             Component.onCompleted: { if (pane.source.length) play() }
             onSourceChanged: { stop(); if (source.toString().length) play() }
+            onPlaybackStateChanged: {
+                if (playbackState === MediaPlayer.StoppedState
+                        && pane.looping && pane.source.length > 0) {
+                    Qt.callLater(function() { play() })
+                }
+            }
+            onErrorOccurred: function(error, errorString) {
+                console.error("MirrorPane error (" + pane.source + "):", errorString)
+                if (pane.looping && pane.source.length > 0)
+                    mirrorRetry.restart()
+            }
+        }
+
+        Timer {
+            id: mirrorRetry
+            interval: 1500; repeat: false
+            onTriggered: { if (pane.source.length > 0) { panePlayer.stop(); panePlayer.play() } }
         }
 
         VideoOutput {

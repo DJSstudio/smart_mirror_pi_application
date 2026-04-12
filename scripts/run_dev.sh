@@ -31,13 +31,20 @@ fi
 echo "Using Qt platform: ${QT_QPA_PLATFORM}"
 
 # ── GStreamer hints for Raspberry Pi ───────────────────────────────────────
-# On Pi Wayland the GStreamer GL sink needs to know which EGL platform to use.
-# Without this the video pipeline can negotiate successfully but output a blank
-# (all-black) frame to the VideoOutput surface.
+# On Pi Wayland the GStreamer GL sink needs EGL platform hints.
 if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then
     export GST_GL_WINDOW="${GST_GL_WINDOW:-wayland}"
     export GST_GL_PLATFORM="${GST_GL_PLATFORM:-egl}"
 fi
+
+# Prefer software H264 decode (avdec_h264) over the Pi hardware decoder
+# (v4l2h264dec).  The hardware decoder can crash or produce black frames when
+# decoding libx264 streams that were encoded with -tune zerolatency, because
+# the hardware path expects Annex-B byte-stream format and specific SPS/PPS
+# placement that our encoder doesn't guarantee.
+# Rank 256 = PRIMARY (just above the default 200 for avdec_h264), which beats
+# v4l2h264dec at rank 188.
+export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50}"
 
 export PYTHONUNBUFFERED=1
 

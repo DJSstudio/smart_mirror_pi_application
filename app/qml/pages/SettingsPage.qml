@@ -53,8 +53,49 @@ Item {
 
             SettingRow {
                 label: "Resolution"
-                description: settingsController.cameraWidth + "×" + settingsController.cameraHeight
-                             + " @ " + settingsController.cameraFps + " fps"
+                description: "Active: " + settingsController.cameraWidth + "×" + settingsController.cameraHeight
+
+                RowLayout {
+                    spacing: 8
+                    Repeater {
+                        model: [
+                            { label: "720p",  w: 1280, h: 720  },
+                            { label: "1080p", w: 1920, h: 1080 },
+                        ]
+                        AppButton {
+                            text: modelData.label
+                            variant: settingsController.cameraWidth === modelData.w
+                                     ? "primary" : "secondary"
+                            implicitWidth: 68
+                            implicitHeight: 38
+                            onClicked: settingsController.setCameraResolution(
+                                modelData.w, modelData.h, settingsController.cameraFps)
+                        }
+                    }
+                }
+            }
+
+            SettingRow {
+                label: "Frame rate"
+                description: "Active: " + settingsController.cameraFps + " fps"
+
+                RowLayout {
+                    spacing: 8
+                    Repeater {
+                        model: [30, 60]
+                        AppButton {
+                            text: modelData + " fps"
+                            variant: settingsController.cameraFps === modelData
+                                     ? "primary" : "secondary"
+                            implicitWidth: 78
+                            implicitHeight: 38
+                            onClicked: settingsController.setCameraResolution(
+                                settingsController.cameraWidth,
+                                settingsController.cameraHeight,
+                                modelData)
+                        }
+                    }
+                }
             }
 
             // ── Section: Mirror display ───────────────────────────────

@@ -138,8 +138,33 @@ Item {
                 else stop()
             }
             onPlaybackStateChanged: {
-                if (playbackState === MediaPlayer.StoppedState && !pane.looping)
-                    pane.finished()
+                if (playbackState === MediaPlayer.StoppedState) {
+                    if (pane.looping && pane.sourceUrl.length > 0) {
+                        // GStreamer pipeline can stall on loop — restart cleanly
+                        Qt.callLater(function() { play() })
+                    } else if (!pane.looping) {
+                        pane.finished()
+                    }
+                }
+            }
+            onErrorOccurred: function(error, errorString) {
+                console.error("MediaPlayer error (" + pane.sourceUrl + "):", errorString)
+                if (pane.looping && pane.sourceUrl.length > 0) {
+                    // Retry after a short delay so we don't spin on a hard error
+                    retryTimer.restart()
+                }
+            }
+        }
+
+        Timer {
+            id: retryTimer
+            interval: 1500
+            repeat: false
+            onTriggered: {
+                if (pane.sourceUrl.length > 0) {
+                    player.stop()
+                    player.play()
+                }
             }
         }
 

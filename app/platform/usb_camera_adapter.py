@@ -164,24 +164,89 @@ def _resolve_device(hint: str | None) -> str:
     return devices[0]
 
 
-def _probe_input_format(device: str) -> str:
-    """Return 'mjpeg' if the device supports MJPEG capture, otherwise ''."""
+def _probe_best_format(device: str, width: int, height: int, fps: int) -> tuple[str, int, int]:
+    """Return (input_format, actual_width, actual_height) for this camera.
+
+    Parses `v4l2-ctl --list-formats-ext` to find the best input format that
+    supports the requested resolution and fps.  Prefers MJPEG because raw
+    YUYV at 1280×720 is limited to ~10 fps on USB 2.0 due to bandwidth.
+
+    Falls back gracefully when v4l2-ctl is unavailable or the parse fails.
+    """
+    import re  # noqa: PLC0415
+
     if not shutil.which("v4l2-ctl"):
-        return ""
+        return "", width, height
+
     try:
         result = subprocess.run(
-            ["v4l2-ctl", "--device", device, "--list-formats"],
-            capture_output=True, text=True, timeout=5,
+            ["v4l2-ctl", "--device", device, "--list-formats-ext"],
+            capture_output=True, text=True, timeout=8,
         )
-        if "mjpeg" in result.stdout.lower():
-            return "mjpeg"
+        output = result.stdout
+
+        # Structure: sections delimited by "Index : N" lines, each section has
+        # a "Pixel Format" line, then "Size: Discrete WxH" lines, then
+        # "\tInterval: Discrete N/D (F.FF fps)" lines.
+        #
+        # We collect all (format, w, h, fps) tuples then score them.
+
+        current_fmt = ""
+        current_w = current_h = 0
+        candidates: list[tuple[str, int, int, float]] = []
+
+        for line in output.splitlines():
+            stripped = line.strip()
+            fmt_match = re.search(r"Pixel Format\s*:\s+'?(\w+)'?", stripped, re.IGNORECASE)
+            if fmt_match:
+                current_fmt = fmt_match.group(1).lower()
+            size_match = re.search(r"Size:\s+Discrete\s+(\d+)x(\d+)", stripped, re.IGNORECASE)
+            if size_match:
+                current_w, current_h = int(size_match.group(1)), int(size_match.group(2))
+            fps_match = re.search(r"\((\d+\.\d+|\d+)\s+fps\)", stripped, re.IGNORECASE)
+            if fps_match and current_fmt:
+                candidates.append((current_fmt, current_w, current_h, float(fps_match.group(1))))
+
+        if not candidates:
+            # Fallback: at least check if MJPEG is advertised
+            if "mjpeg" in output.lower():
+                return "mjpeg", width, height
+            return "", width, height
+
+        target_res = (width, height)
+
+        def _score(c: tuple[str, int, int, float]) -> tuple[int, int, int]:
+            fmt, w, h, cfps = c
+            fmt_pref = 0 if fmt == "mjpeg" else 1       # prefer MJPEG
+            res_exact = 0 if (w, h) == target_res else 1 # prefer exact resolution
+            fps_diff = abs(cfps - fps)
+            return (fmt_pref, res_exact, int(fps_diff * 100))
+
+        best = min(candidates, key=_score)
+        best_fmt, best_w, best_h, best_fps = best
+
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).info(
+            "Camera %s: using format=%s res=%dx%d (wanted %dx%d) best_fps=%.0f (wanted %d)",
+            device, best_fmt, best_w, best_h, width, height, best_fps, fps,
+        )
+
+        # If the camera can't do the requested resolution at all, fall back to
+        # the best resolution it does offer (sorted: closest total pixels).
+        if (best_w, best_h) != target_res:
+            logging.getLogger(__name__).warning(
+                "Camera does not support %dx%d — falling back to %dx%d",
+                width, height, best_w, best_h,
+            )
+
+        return best_fmt, best_w, best_h
+
     except Exception:  # noqa: BLE001
-        pass
-    return ""
+        return "", width, height
 
 
 def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, tee: str) -> list[str]:
-    input_fmt = _probe_input_format(device)
+    input_fmt, actual_w, actual_h = _probe_best_format(device, width, height, fps)
     input_fmt_args = ["-input_format", input_fmt] if input_fmt else []
     return [
         "ffmpeg",
@@ -190,7 +255,7 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-f", "v4l2",
         *input_fmt_args,
         "-framerate", str(fps),
-        "-video_size", f"{width}x{height}",
+        "-video_size", f"{actual_w}x{actual_h}",
         "-i", device,
         "-an",
         "-c:v", "libx264",
@@ -199,8 +264,7 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
         "-g", str(max(fps, 10)),
-        # Explicit stream mapping is required by the tee muxer to route the
-        # video stream to every output target.
+        # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         "-f", "tee", tee,
     ]
