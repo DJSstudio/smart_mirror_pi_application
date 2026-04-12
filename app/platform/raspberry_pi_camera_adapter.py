@@ -22,7 +22,25 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         self._capture_fmt: str | None = None
 
     def is_available(self) -> bool:
-        return shutil.which("rpicam-vid") is not None
+        if not shutil.which("rpicam-vid"):
+            return False
+        # Verify a camera module is actually detected by libcamera.
+        # rpicam-vid --list-cameras outputs "No cameras available" when none
+        # are connected or the camera interface is disabled in firmware.
+        try:
+            result = subprocess.run(
+                ["rpicam-vid", "--list-cameras"],
+                capture_output=True, text=True, timeout=5,
+            )
+            combined = (result.stdout + result.stderr).lower()
+            # Unknown flag means old rpicam build — fall back to binary check only
+            if "unrecognised" in combined or "unknown option" in combined:
+                return True
+            if "no cameras" in combined or "0 : " not in combined:
+                return False
+            return True
+        except Exception:
+            return True
 
     def start_recording(
         self,

@@ -165,7 +165,23 @@ Item {
             }
 
             // ── Section: Diagnostics ──────────────────────────────────
-            SectionHeader { text: "Diagnostics" }
+            SectionHeader { text: "Camera Status" }
+
+            Repeater {
+                model: Object.entries(settingsController.cameraBackendsStatus || {})
+
+                SettingRow {
+                    label: modelData[0]
+                    description: modelData[1] ? "Ready" : "Not available"
+
+                    Rectangle {
+                        width: 12; height: 12; radius: 999
+                        color: modelData[1] ? "#4c8c5a" : "#8c3a3a"
+                    }
+                }
+            }
+
+            SectionHeader { text: "Dependencies" }
 
             Repeater {
                 model: Object.entries(settingsController.dependenciesStatus || {})

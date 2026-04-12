@@ -85,6 +85,13 @@ class CameraService:
             "ffprobe":    shutil.which("ffprobe")    is not None,
         }
 
+    def backends_status(self) -> dict[str, bool]:
+        """Check which camera backends are actually working (not just installed)."""
+        return {
+            "Pi camera (CSI)": self._pi.is_available(),
+            "USB webcam":      self._usb.is_available(),
+        }
+
     # ------------------------------------------------------------------
     # Private
     # ------------------------------------------------------------------

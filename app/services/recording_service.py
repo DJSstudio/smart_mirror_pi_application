@@ -41,16 +41,18 @@ class RecordingService:
         if capture.file_format == "mp4":
             if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
                 raise RuntimeError(
-                    "No video data was captured. The camera may not be initialised — "
-                    "enable it via raspi-config → Interface Options → Camera, then reboot."
+                    "No video data was captured. "
+                    "If using the Pi camera, enable it via raspi-config → Interface Options → Camera and reboot. "
+                    "You can also switch to the USB backend in Settings."
                 )
             return PreparedRecording(file_path=capture.file_path, backend=capture.backend)
 
         if capture.file_format == "h264":
             if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
                 raise RuntimeError(
-                    "No video data was captured. The camera may not be initialised — "
-                    "enable it via raspi-config → Interface Options → Camera, then reboot."
+                    "No video data was captured. "
+                    "If using the Pi camera, enable it via raspi-config → Interface Options → Camera and reboot. "
+                    "You can also switch to the USB backend in Settings."
                 )
             fps = int(self._settings.get("camera_fps", 30))
             mp4_path = capture.file_path.with_suffix(".mp4")

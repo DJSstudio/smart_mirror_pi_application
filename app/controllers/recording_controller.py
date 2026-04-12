@@ -232,7 +232,8 @@ class RecordingController(QObject):
             self._busy = False
             msg = (
                 "Camera stopped unexpectedly. "
-                "Check that the camera is connected and enabled (raspi-config → Interface Options → Camera)."
+                "Check: 1) CSI cable is seated, 2) Camera enabled in raspi-config → Interface Options, "
+                "3) Reboot after enabling. Or switch to USB backend in Settings."
             )
             self._set_error(msg)
             self._app.showError(msg)

@@ -160,3 +160,7 @@ class SettingsController(QObject):
     @Property(object, notify=changed)
     def dependenciesStatus(self) -> dict:
         return self._camera.dependencies_ok()
+
+    @Property(object, notify=changed)
+    def cameraBackendsStatus(self) -> dict:
+        return self._camera.backends_status()
