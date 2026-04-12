@@ -4,11 +4,23 @@ Manages the full lifecycle:
   idle → countdown → recording → review → (save | discard) → idle
 
 Exposed to QML as `recordingController`.
+
+Warm-up strategy
+────────────────
+The camera pipeline (ffmpeg → GStreamer/UDP) needs ~2-4 s to stabilise
+before delivering clean, artefact-free frames.  To hide this we start the
+camera at the *beginning* of the countdown rather than at its end:
+
+  T=0  beginRecording() — camera starts, control preview source set
+          (GStreamer starts initialising behind the countdown overlay)
+  T=2  countdown reaches _MIRROR_REVEAL_AT — mirror preview revealed
+          (mirror GStreamer has _MIRROR_REVEAL_AT seconds to warm up)
+  T=5  countdown reaches 0 — recording officially starts; both pipelines
+          have been running for 3–5 s and are now delivering clean frames
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
@@ -18,6 +30,15 @@ from app.services.mirror_display_service import MirrorDisplayService
 from app.services.recording_service import RecordingService
 
 LOGGER = logging.getLogger(__name__)
+
+# Total countdown seconds.  Camera starts at T=0 so it has the full
+# countdown period to warm up.
+_WARMUP_SECONDS = 5
+
+# When the countdown reaches this value (counting down from _WARMUP_SECONDS),
+# tell the mirror to show the live preview so its GStreamer pipeline also
+# gets time to warm up before recording officially starts.
+_MIRROR_REVEAL_AT = 3
 
 
 class RecordingController(QObject):
@@ -58,6 +79,7 @@ class RecordingController(QObject):
         self._elapsed = 0
         self._preview_source = ""
         self._review_source = ""
+        self._warmup_mirror_url = ""   # mirror stream URL stored during warm-up
         self._error = ""
         self._backend_label = camera_service.current_backend_label()
         self._prepared: PreparedRecording | None = None
@@ -109,12 +131,35 @@ class RecordingController(QObject):
 
     @Slot()
     def beginRecording(self) -> None:
-        """Start the pre-recording countdown."""
+        """Start the pre-recording countdown.
+
+        The camera pipeline is started immediately so both GStreamer pipelines
+        (control + mirror) have the full countdown period to warm up.  This
+        eliminates pixelation/blocking artefacts at the start of recording.
+        """
         if self._busy or self._recording or self._prepared:
             return
         self._clear_error()
         self._busy = True
-        self._countdown = 3
+        self._countdown = _WARMUP_SECONDS
+        self._emit()
+
+        # Start the camera NOW (recording to file) so the ffmpeg→GStreamer
+        # UDP pipeline is already stable when the countdown ends.
+        try:
+            preview = self._camera.start_recording()
+            self._preview_source = preview.control_preview_url
+            self._warmup_mirror_url = preview.mirror_preview_url
+            self._backend_label = preview.backend
+        except Exception as exc:  # noqa: BLE001
+            self._busy = False
+            self._countdown = 0
+            self._warmup_mirror_url = ""
+            self._set_error(str(exc))
+            self._app.showError(str(exc))
+            self._emit()
+            return
+
         self._emit()
         self._cd_timer.start()
 
@@ -168,14 +213,14 @@ class RecordingController(QObject):
     @Slot()
     def discardRecording(self) -> None:
         """Cancel recording or discard a reviewed clip."""
-        if self._recording:
-            self._camera.stop(discard=True)
-            self._el_timer.stop()
-            self._mirror.show_idle_black()
-        if self._prepared:
-            self._recording_svc.discard_prepared(self._prepared)
         self._cd_timer.stop()
         self._el_timer.stop()
+        # Stop the camera whether we are in warm-up or active-recording state.
+        if self._camera.is_active():
+            self._camera.stop(discard=True)
+        self._mirror.show_idle_black()
+        if self._prepared:
+            self._recording_svc.discard_prepared(self._prepared)
         self._reset_state()
         self._app.showStatus("Recording discarded.")
 
@@ -191,6 +236,26 @@ class RecordingController(QObject):
     # ------------------------------------------------------------------
 
     def _tick_countdown(self) -> None:
+        # Detect camera crash during warm-up before countdown ends.
+        if self._preview_source and not self._camera.is_alive():
+            LOGGER.warning("Camera process died during countdown warm-up")
+            self._cd_timer.stop()
+            self._preview_source = ""
+            self._warmup_mirror_url = ""
+            self._mirror.show_idle_black()
+            self._busy = False
+            self._countdown = 0
+            msg = (
+                "Camera stopped during countdown. "
+                "Check: 1) CSI cable is seated, 2) Camera enabled in raspi-config → "
+                "Interface Options, 3) Reboot after enabling. "
+                "Or switch to USB backend in Settings."
+            )
+            self._set_error(msg)
+            self._app.showError(msg)
+            self._emit()
+            return
+
         if self._countdown <= 1:
             self._cd_timer.stop()
             self._countdown = 0
@@ -198,27 +263,22 @@ class RecordingController(QObject):
             self._start_now()
         else:
             self._countdown -= 1
+            # Reveal the mirror preview early so its GStreamer pipeline also
+            # has time to warm up (_MIRROR_REVEAL_AT seconds remain).
+            if self._countdown == _MIRROR_REVEAL_AT and self._warmup_mirror_url:
+                self._mirror.show_live_preview(self._warmup_mirror_url)
             self._emit()
 
     def _start_now(self) -> None:
-        try:
-            preview = self._camera.start_recording()
-            self._recording = True
-            self._busy = False
-            self._elapsed = 0
-            self._preview_source = preview.control_preview_url
-            self._backend_label = preview.backend
-            self._mirror.show_live_preview(preview.mirror_preview_url)
-            self._el_timer.start()
-            self._app.showStatus("Recording…")
-        except Exception as exc:  # noqa: BLE001
-            self._busy = False
-            self._recording = False
-            self._preview_source = ""
-            self._set_error(str(exc))
-            self._app.showError(str(exc))
-        finally:
-            self._emit()
+        # The camera was already started in beginRecording() for the warm-up.
+        # All we need to do here is transition to the official recording state.
+        self._recording = True
+        self._busy = False
+        self._elapsed = 0
+        # _preview_source is already set; mirror is already showing live preview.
+        self._el_timer.start()
+        self._app.showStatus("Recording…")
+        self._emit()
 
     def _tick_elapsed(self) -> None:
         self._elapsed += 1
@@ -250,6 +310,7 @@ class RecordingController(QObject):
         self._elapsed = 0
         self._preview_source = ""
         self._review_source = ""
+        self._warmup_mirror_url = ""
         self._prepared = None
         self._clear_error()
 

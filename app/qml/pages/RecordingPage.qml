@@ -21,7 +21,7 @@ Item {
                     ? "Watch the clip, then save it to your gallery or discard it."
                     : (recordingController.isRecording
                         ? "The mirror is showing the live preview. Press Stop when done."
-                        : "When you press Start, a 3-second countdown will begin.")
+                        : "When you press Start, a 5-second countdown will begin.")
             showBack: !recordingController.isRecording && !recordingController.hasReview && recordingController.countdown === 0
             onBackClicked: appController.showDashboard()
         }
@@ -205,7 +205,9 @@ Item {
             }
 
             AppButton {
-                visible: recordingController.hasReview || recordingController.isRecording
+                visible: recordingController.hasReview
+                         || recordingController.isRecording
+                         || recordingController.countdown > 0
                 Layout.fillWidth: true
                 text: "Discard"
                 variant: "secondary"

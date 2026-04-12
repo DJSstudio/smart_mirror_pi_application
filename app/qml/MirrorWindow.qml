@@ -42,6 +42,46 @@ ApplicationWindow {
             }
 
         }
+
+        // ── Pre-recording countdown overlay ──────────────────────────
+        // Shown while the camera pipeline warms up so subjects see a
+        // clean countdown instead of pixelated warm-up frames.
+        Rectangle {
+            id: mirrorCountdownOverlay
+            anchors.fill: parent
+            visible: recordingController.countdown > 0
+            color: "#d9000000"
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 20
+
+                Text {
+                    id: mirrorCountNum
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: recordingController.countdown > 0
+                          ? recordingController.countdown.toString() : ""
+                    font.pixelSize: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.35
+                    font.weight: Font.Bold
+                    color: "#fff8f4"
+                    opacity: 0.92
+
+                    SequentialAnimation on scale {
+                        running: recordingController.countdown > 0
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 1.12; duration: 300; easing.type: Easing.OutQuad }
+                        NumberAnimation { to: 1.0;  duration: 700; easing.type: Easing.InQuad }
+                    }
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Get ready…"
+                    font.pixelSize: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.04
+                    color: "#d0c8c0"
+                }
+            }
+        }
     }
 
     // ── Live preview (recording mode) ────────────────────────────────
