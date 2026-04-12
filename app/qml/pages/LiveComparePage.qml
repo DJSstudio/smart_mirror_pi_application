@@ -2,13 +2,14 @@
 // Mirror shows full-screen split.
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import QtMultimedia
 import "../components"
 
 Item {
     id: root
 
-    property bool fillCrop: settingsController.compareFillCrop
+    property bool fillCrop: settingsController ? settingsController.compareFillCrop : true
 
     ColumnLayout {
         anchors { fill: parent; margins: 24 }
@@ -22,8 +23,8 @@ Item {
             onBackClicked: {
                 videoPlayer.stop()
                 livePlayer.stop()
-                playbackService.close_active()
-                appController.showGallery()
+                if (playbackService) playbackService.close_active()
+                if (appController) appController.showGallery()
             }
         }
 
@@ -43,7 +44,7 @@ Item {
 
                 MediaPlayer {
                     id: videoPlayer
-                    source: playbackService.primarySource
+                    source: playbackService ? playbackService.primarySource : ""
                     loops: MediaPlayer.Infinite
                     videoOutput: videoOut
                     audioOutput: AudioOutput { muted: true }
@@ -64,7 +65,7 @@ Item {
                     radius: 999; color: "#aa0a0907"
                     width: lblSaved.implicitWidth + 14; height: 24
                     Text { id: lblSaved; anchors.centerIn: parent
-                           text: playbackService.primaryLabel
+                           text: playbackService ? playbackService.primaryLabel : ""
                            font.pixelSize: 12; font.weight: Font.DemiBold; color: "#f0ebe5" }
                 }
             }
@@ -79,7 +80,7 @@ Item {
 
                 MediaPlayer {
                     id: livePlayer
-                    source: playbackService.secondarySource
+                    source: playbackService ? playbackService.secondarySource : ""
                     loops: MediaPlayer.Infinite
                     videoOutput: liveOut
                     audioOutput: AudioOutput { muted: true }
@@ -133,7 +134,7 @@ Item {
                 variant: "secondary"
                 onClicked: {
                     root.fillCrop = !root.fillCrop
-                    settingsController.setCompareFillCrop(root.fillCrop)
+                    if (settingsController) settingsController.setCompareFillCrop(root.fillCrop)
                 }
             }
 
@@ -144,8 +145,8 @@ Item {
                 onClicked: {
                     videoPlayer.stop()
                     livePlayer.stop()
-                    playbackService.close_active()
-                    appController.showGallery()
+                    if (playbackService) playbackService.close_active()
+                    if (appController) appController.showGallery()
                 }
             }
         }

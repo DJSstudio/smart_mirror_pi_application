@@ -95,14 +95,17 @@ class MirrorDisplayService(QObject):
         self._set("test_pattern", "", "", "", "")
 
     # ------------------------------------------------------------------
-    # Configuration setters (not slots — called by SettingsController)
+    # Configuration setters — also decorated as Slots so QML can call
+    # them directly if needed (SettingsController is the normal caller)
     # ------------------------------------------------------------------
 
+    @Slot(int)
     def set_orientation(self, degrees: int) -> None:
         self._orientation_degrees = degrees
         self._settings.set("mirror_orientation_degrees", degrees)
         self.changed.emit()
 
+    @Slot(bool)
     def set_compare_fill_crop(self, enabled: bool) -> None:
         self._compare_fill_crop = enabled
         self._settings.set("compare_fill_crop", enabled)

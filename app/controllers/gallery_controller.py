@@ -39,7 +39,7 @@ class GalleryController(QObject):
     # Properties
     # ------------------------------------------------------------------
 
-    @Property(list, notify=videosChanged)
+    @Property("QVariantList", notify=videosChanged)
     def videos(self) -> list:
         return [v.to_dict() for v in self._videos]
 
@@ -47,7 +47,7 @@ class GalleryController(QObject):
     def videoCount(self) -> int:
         return len(self._videos)
 
-    @Property(list, notify=changed)
+    @Property("QVariantList", notify=changed)
     def selectedIds(self) -> list:
         return list(self._selected_ids)
 
@@ -135,6 +135,6 @@ class GalleryController(QObject):
             self._selected_ids.remove(video_id)
         self.refresh()
 
-    @Slot(str)
+    @Slot(str, result=bool)
     def isSelected(self, video_id: str) -> bool:
         return video_id in self._selected_ids

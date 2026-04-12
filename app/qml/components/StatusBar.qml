@@ -41,7 +41,7 @@ Rectangle {
 
             MouseArea {
                 anchors.fill: parent
-                onClicked: appController.clearError()
+                onClicked: if (appController) appController.clearError()
             }
         }
     }

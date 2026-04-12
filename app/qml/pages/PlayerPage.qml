@@ -13,13 +13,13 @@ Item {
         // ── Header ──────────────────────────────────────────────────
         PageHeader {
             Layout.fillWidth: true
-            title: playbackService.primaryLabel.length > 0
-                   ? playbackService.primaryLabel
+            title: playbackService
+                   ? (playbackService.primaryLabel.length > 0 ? playbackService.primaryLabel : "Look Review")
                    : "Look Review"
             subtitle: "Mirror is active. Playback is controlled here."
             onBackClicked: {
-                playbackService.close_active()
-                appController.showGallery()
+                if (playbackService) playbackService.close_active()
+                if (appController) appController.showGallery()
             }
         }
 
@@ -27,8 +27,8 @@ Item {
         MediaSurface {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            primarySource: playbackService.primarySource
-            primaryLabel: playbackService.primaryLabel
+            primarySource: playbackService ? playbackService.primarySource : ""
+            primaryLabel: playbackService ? playbackService.primaryLabel : ""
             muted: false
             looping: true
         }
@@ -59,8 +59,8 @@ Item {
                 text: "Back to Gallery"
                 variant: "secondary"
                 onClicked: {
-                    playbackService.close_active()
-                    appController.showGallery()
+                    if (playbackService) playbackService.close_active()
+                    if (appController) appController.showGallery()
                 }
             }
 
@@ -68,8 +68,8 @@ Item {
                 Layout.fillWidth: true
                 text: "Close Player"
                 onClicked: {
-                    playbackService.close_active()
-                    appController.showDashboard()
+                    if (playbackService) playbackService.close_active()
+                    if (appController) appController.showDashboard()
                 }
             }
         }

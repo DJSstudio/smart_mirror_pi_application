@@ -64,6 +64,7 @@ class SettingsController(QObject):
     @Slot(bool)
     def setCompareFillCrop(self, enabled: bool) -> None:
         self._mirror.set_compare_fill_crop(enabled)
+        self._settings.set("compare_fill_crop", enabled)
         self.changed.emit()
 
     # ------------------------------------------------------------------
@@ -102,7 +103,7 @@ class SettingsController(QObject):
     # Screens
     # ------------------------------------------------------------------
 
-    @Property(list, notify=changed)
+    @Property("QVariantList", notify=changed)
     def availableScreens(self) -> list:
         return self._screens.available_screens()
 
@@ -148,7 +149,7 @@ class SettingsController(QObject):
     # Camera info
     # ------------------------------------------------------------------
 
-    @Property(list, notify=changed)
+    @Property("QVariantList", notify=changed)
     def availableCameraBackends(self) -> list:
         return self._camera.available_backends()
 

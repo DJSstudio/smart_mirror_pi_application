@@ -2,6 +2,7 @@
 // Both the control screen (silent) and the mirror (full screen split) are active.
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import QtMultimedia
 import "../components"
 
@@ -18,7 +19,7 @@ Item {
     }
 
     property bool paused: false
-    property bool fillCrop: settingsController.compareFillCrop
+    property bool fillCrop: settingsController ? settingsController.compareFillCrop : true
 
     // ── Helpers ────────────────────────────────────────────────────
     function _syncPlayers() {
@@ -65,8 +66,8 @@ Item {
                 syncTimer.stop()
                 leftPlayer.stop()
                 rightPlayer.stop()
-                playbackService.close_active()
-                appController.showGallery()
+                if (playbackService) playbackService.close_active()
+                if (appController) appController.showGallery()
             }
         }
 
@@ -87,7 +88,7 @@ Item {
 
                 MediaPlayer {
                     id: leftPlayer
-                    source: playbackService.primarySource
+                    source: playbackService ? playbackService.primarySource : ""
                     loops: MediaPlayer.Infinite
                     videoOutput: leftOutput
                     audioOutput: AudioOutput { muted: true }
@@ -106,7 +107,7 @@ Item {
                     anchors { left: parent.left; top: parent.top; margins: 10 }
                     radius: 999; color: "#aa0a0907"
                     width: lblLeft.implicitWidth + 14; height: 24
-                    Text { id: lblLeft; anchors.centerIn: parent; text: playbackService.primaryLabel
+                    Text { id: lblLeft; anchors.centerIn: parent; text: playbackService ? playbackService.primaryLabel : ""
                            font.pixelSize: 12; font.weight: Font.DemiBold; color: "#f0ebe5" }
                 }
             }
@@ -122,7 +123,7 @@ Item {
 
                 MediaPlayer {
                     id: rightPlayer
-                    source: playbackService.secondarySource
+                    source: playbackService ? playbackService.secondarySource : ""
                     loops: MediaPlayer.Infinite
                     videoOutput: rightOutput
                     audioOutput: AudioOutput { muted: true }
@@ -141,7 +142,7 @@ Item {
                     anchors { left: parent.left; top: parent.top; margins: 10 }
                     radius: 999; color: "#aa0a0907"
                     width: lblRight.implicitWidth + 14; height: 24
-                    Text { id: lblRight; anchors.centerIn: parent; text: playbackService.secondaryLabel
+                    Text { id: lblRight; anchors.centerIn: parent; text: playbackService ? playbackService.secondaryLabel : ""
                            font.pixelSize: 12; font.weight: Font.DemiBold; color: "#f0ebe5" }
                 }
             }
@@ -212,8 +213,7 @@ Item {
                 implicitWidth: 72
                 onClicked: {
                     root.fillCrop = !root.fillCrop
-                    settingsController.setCompareFillCrop(root.fillCrop)
-                    mirrorDisplay.set_compare_fill_crop(root.fillCrop)
+                    if (settingsController) settingsController.setCompareFillCrop(root.fillCrop)
                 }
             }
 
@@ -224,8 +224,8 @@ Item {
                     syncTimer.stop()
                     leftPlayer.stop()
                     rightPlayer.stop()
-                    playbackService.close_active()
-                    appController.showGallery()
+                    if (playbackService) playbackService.close_active()
+                    if (appController) appController.showGallery()
                 }
             }
         }

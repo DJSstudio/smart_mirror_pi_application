@@ -3,6 +3,7 @@
 // Renders content only when MirrorDisplayService commands it.
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import QtMultimedia
 
 ApplicationWindow {

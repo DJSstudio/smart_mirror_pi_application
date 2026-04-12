@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from PySide6.QtCore import QObject, Property, Signal
+from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from app.models.entities import VideoRecord
 from app.services.camera_service import CameraService
@@ -62,22 +62,39 @@ class PlaybackService(QObject):
         return self._secondary_label
 
     # ------------------------------------------------------------------
-    # Actions (called from GalleryController)
+    # Actions — decorated as @Slot so QML can call them directly
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def close_active(self) -> None:
+        """Stop any active playback and return mirror to idle/black."""
+        if self._mode == "live_compare":
+            self._camera.stop(discard=True)
+        self._mode = "idle"
+        self._primary_source = ""
+        self._secondary_source = ""
+        self._primary_label = ""
+        self._secondary_label = ""
+        self._mirror.show_idle_black()
+        self.changed.emit()
+
+    # ------------------------------------------------------------------
+    # Called by GalleryController (Python-to-Python, Slot not strictly
+    # required but added for completeness)
     # ------------------------------------------------------------------
 
     def open_video(self, video: VideoRecord) -> None:
-        """Show a single video on the mirror and expose it to QML."""
-        url = video.to_dict()["sourceUrl"]
+        url = str(video.to_dict()["sourceUrl"])
         self._mode = "video"
-        self._primary_source = str(url)
+        self._primary_source = url
         self._secondary_source = ""
         self._primary_label = video.title
         self._secondary_label = ""
-        self._mirror.show_video(self._primary_source)
+        self._mirror.show_video(url)
         self.changed.emit()
 
     def open_compare(self, left: VideoRecord, right: VideoRecord) -> None:
-        left_url = str(left.to_dict()["sourceUrl"])
+        left_url  = str(left.to_dict()["sourceUrl"])
         right_url = str(right.to_dict()["sourceUrl"])
         self._mode = "compare"
         self._primary_source = left_url
@@ -88,7 +105,7 @@ class PlaybackService(QObject):
         self.changed.emit()
 
     def open_live_compare(self, video: VideoRecord) -> None:
-        preview = self._camera.start_preview_only()
+        preview   = self._camera.start_preview_only()
         video_url = str(video.to_dict()["sourceUrl"])
         self._mode = "live_compare"
         self._primary_source = video_url
@@ -96,15 +113,4 @@ class PlaybackService(QObject):
         self._primary_label = video.title
         self._secondary_label = "Live"
         self._mirror.show_live_compare(video_url, preview.mirror_preview_url)
-        self.changed.emit()
-
-    def close_active(self) -> None:
-        if self._mode == "live_compare":
-            self._camera.stop(discard=True)
-        self._mode = "idle"
-        self._primary_source = ""
-        self._secondary_source = ""
-        self._primary_label = ""
-        self._secondary_label = ""
-        self._mirror.show_idle_black()
         self.changed.emit()
