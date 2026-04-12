@@ -16,6 +16,7 @@ ApplicationWindow {
 
     readonly property bool navigationLocked: recordingController.isRecording || recordingController.hasReview || recordingController.countdown > 0
     readonly property bool portraitMirror: settingsController.mirrorOrientationDegrees === 90 || settingsController.mirrorOrientationDegrees === 270
+    readonly property bool compactWidth: width < 920
     readonly property real cardWidth: Math.min(width * 0.82, 760)
     readonly property real wideCardWidth: Math.min(width * 0.94, 1080)
     readonly property real mediaCardWidth: Math.min(width * 0.94, 1180)
@@ -41,6 +42,12 @@ ApplicationWindow {
         "live_compare": "Compare a saved look with the current live preview.",
         "settings": "Adjust screen assignment, mirror orientation, and camera backend preferences."
     })[appController.currentPage] || ""
+
+    Component.onCompleted: {
+        if (appController.currentPage !== "dashboard") {
+            appController.showDashboard()
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -127,13 +134,13 @@ ApplicationWindow {
         Item {
             anchors.fill: parent
 
-            ColumnLayout {
+            Column {
                 anchors.centerIn: parent
                 width: controlWindow.cardWidth
                 spacing: 14
 
                 Text {
-                    Layout.alignment: Qt.AlignHCenter
+                    width: parent.width
                     text: controlWindow.pageTitle
                     color: "#6b6661"
                     font.family: "Noto Serif"
@@ -143,7 +150,7 @@ ApplicationWindow {
                 }
 
                 Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
                     radius: 999
                     color: "#f7f2ee"
                     border.width: 1
@@ -162,51 +169,56 @@ ApplicationWindow {
                 }
 
                 Rectangle {
-                    Layout.fillWidth: true
+                    width: parent.width
+                    implicitHeight: dashboardCardContent.implicitHeight + 56
                     radius: 30
                     color: "#f7f2ee"
                     border.width: 1
                     border.color: "#ffffff"
 
-                    ColumnLayout {
+                    Column {
+                        id: dashboardCardContent
                         anchors.fill: parent
                         anchors.margins: 28
                         spacing: 18
 
                         AppButton {
-                            Layout.fillWidth: true
+                            width: parent.width
                             text: "Record Look"
                             onClicked: appController.showRecording()
                         }
 
                         AppButton {
-                            Layout.fillWidth: true
+                            width: parent.width
                             text: "Gallery"
                             onClicked: appController.showGallery()
                         }
 
                         Rectangle {
-                            Layout.fillWidth: true
+                            width: parent.width
+                            implicitHeight: orientationCardContent.implicitHeight + 12
                             radius: 20
                             color: "#f1eae6"
                             border.width: 1
                             border.color: "#e4ddd7"
 
-                            ColumnLayout {
+                            Column {
+                                id: orientationCardContent
                                 anchors.fill: parent
                                 anchors.margins: 6
                                 spacing: 8
 
                                 Text {
-                                    Layout.alignment: Qt.AlignHCenter
+                                    width: parent.width
                                     text: "Mirror View: " + (controlWindow.portraitMirror ? "Portrait" : "Landscape") + " (" + settingsController.mirrorOrientationDegrees + "°)"
                                     color: "#7a746e"
                                     font.family: "Noto Sans"
                                     font.pixelSize: 12
+                                    horizontalAlignment: Text.AlignHCenter
                                 }
 
                                 RowLayout {
-                                    Layout.fillWidth: true
+                                    width: parent.width
                                     spacing: 6
 
                                     Rectangle {
@@ -255,18 +267,19 @@ ApplicationWindow {
                         }
 
                         Text {
-                            Layout.alignment: Qt.AlignHCenter
+                            width: parent.width
                             text: "Session ID: " + sessionController.activeSessionId
                             color: "#6a6661"
                             font.family: "Noto Sans"
                             font.pixelSize: 12
                             elide: Text.ElideMiddle
+                            horizontalAlignment: Text.AlignHCenter
                         }
                     }
                 }
 
                 RowLayout {
-                    Layout.alignment: Qt.AlignHCenter
+                    width: parent.width
                     spacing: 12
 
                     Button {
@@ -900,197 +913,226 @@ ApplicationWindow {
             anchors.fill: parent
 
             ScrollView {
+                id: settingsScroll
                 anchors.fill: parent
                 anchors.margins: 20
                 clip: true
 
-                ColumnLayout {
-                    width: controlWindow.wideCardWidth
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 14
+                Item {
+                    width: settingsScroll.availableWidth
+                    implicitHeight: settingsColumn.implicitHeight
 
-                    RowLayout {
-                        Layout.fillWidth: true
+                    Column {
+                        id: settingsColumn
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: Math.min(parent.width, controlWindow.wideCardWidth)
+                        spacing: 14
 
-                        ToolButton {
-                            text: "‹"
-                            enabled: !controlWindow.navigationLocked
-                            onClicked: appController.showDashboard()
-                        }
+                        RowLayout {
+                            width: parent.width
+                            spacing: 8
 
-                        Text {
-                            text: "Settings"
-                            color: "#6b6661"
-                            font.family: "Noto Serif"
-                            font.pixelSize: 22
-                            font.weight: Font.Medium
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        radius: 30
-                        color: "#f7f2ee"
-                        border.width: 1
-                        border.color: "#ffffff"
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 24
-                            spacing: 16
+                            ToolButton {
+                                text: "‹"
+                                enabled: !controlWindow.navigationLocked
+                                onClicked: appController.showDashboard()
+                            }
 
                             Text {
-                                text: "Display Assignment"
+                                text: "Settings"
                                 color: "#6b6661"
                                 font.family: "Noto Serif"
-                                font.pixelSize: 24
+                                font.pixelSize: 22
+                                font.weight: Font.Medium
                             }
+                        }
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 12
+                        Rectangle {
+                            width: parent.width
+                            implicitHeight: displayCardContent.implicitHeight + 48
+                            radius: 30
+                            color: "#f7f2ee"
+                            border.width: 1
+                            border.color: "#ffffff"
 
-                                ComboBox {
-                                    id: controlScreenCombo
-                                    Layout.fillWidth: true
-                                    model: settingsController.displays
-                                    textRole: "label"
-                                    currentIndex: Math.min(settingsController.controlScreenIndex >= 0 ? settingsController.controlScreenIndex : 0, Math.max(0, count - 1))
+                            Column {
+                                id: displayCardContent
+                                anchors.fill: parent
+                                anchors.margins: 24
+                                spacing: 16
+
+                                Text {
+                                    text: "Display Assignment"
+                                    color: "#6b6661"
+                                    font.family: "Noto Serif"
+                                    font.pixelSize: 24
                                 }
 
-                                ComboBox {
-                                    id: mirrorScreenCombo
-                                    Layout.fillWidth: true
-                                    model: settingsController.displays
-                                    textRole: "label"
-                                    currentIndex: Math.min(settingsController.mirrorScreenIndex >= 0 ? settingsController.mirrorScreenIndex : Math.max(0, count - 1), Math.max(0, count - 1))
-                                }
+                                Column {
+                                    width: parent.width
+                                    spacing: 10
 
-                                AppButton {
-                                    text: "Apply"
-                                    onClicked: settingsController.saveScreenAssignment(controlScreenCombo.currentIndex, mirrorScreenCombo.currentIndex)
+                                    ComboBox {
+                                        id: controlScreenCombo
+                                        width: parent.width
+                                        model: settingsController.displays
+                                        textRole: "label"
+                                        currentIndex: Math.min(settingsController.controlScreenIndex >= 0 ? settingsController.controlScreenIndex : 0, Math.max(0, count - 1))
+                                    }
+
+                                    ComboBox {
+                                        id: mirrorScreenCombo
+                                        width: parent.width
+                                        model: settingsController.displays
+                                        textRole: "label"
+                                        currentIndex: Math.min(settingsController.mirrorScreenIndex >= 0 ? settingsController.mirrorScreenIndex : Math.max(0, count - 1), Math.max(0, count - 1))
+                                    }
+
+                                    AppButton {
+                                        width: controlWindow.compactWidth ? parent.width : 180
+                                        text: "Apply"
+                                        onClicked: settingsController.saveScreenAssignment(controlScreenCombo.currentIndex, mirrorScreenCombo.currentIndex)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Rectangle {
-                        Layout.fillWidth: true
-                        radius: 30
-                        color: "#f7f2ee"
-                        border.width: 1
-                        border.color: "#ffffff"
+                        Rectangle {
+                            width: parent.width
+                            implicitHeight: mirrorCardContent.implicitHeight + 48
+                            radius: 30
+                            color: "#f7f2ee"
+                            border.width: 1
+                            border.color: "#ffffff"
 
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 24
-                            spacing: 16
+                            Column {
+                                id: mirrorCardContent
+                                anchors.fill: parent
+                                anchors.margins: 24
+                                spacing: 16
 
-                            Text {
-                                text: "Mirror Preferences"
-                                color: "#6b6661"
-                                font.family: "Noto Serif"
-                                font.pixelSize: 24
+                                Text {
+                                    text: "Mirror Preferences"
+                                    color: "#6b6661"
+                                    font.family: "Noto Serif"
+                                    font.pixelSize: 24
+                                }
+
+                                Flow {
+                                    width: parent.width
+                                    spacing: 10
+
+                                    Repeater {
+                                        model: [0, 90, 180, 270]
+                                        delegate: AppButton {
+                                            text: modelData + "°"
+                                            width: controlWindow.compactWidth ? (mirrorCardContent.width - 10) / 2 : implicitWidth
+                                            onClicked: settingsController.setMirrorOrientation(modelData)
+                                        }
+                                    }
+                                }
+
+                                Flow {
+                                    width: parent.width
+                                    spacing: 12
+
+                                    AppButton {
+                                        text: settingsController.compareFillCrop ? "Compare: Crop + Fit" : "Compare: Full Frame"
+                                        width: controlWindow.compactWidth ? parent.width : implicitWidth
+                                        onClicked: settingsController.setCompareFillCrop(!settingsController.compareFillCrop)
+                                    }
+
+                                    AppButton {
+                                        text: "Show Test Pattern"
+                                        width: controlWindow.compactWidth ? parent.width : implicitWidth
+                                        onClicked: settingsController.showMirrorTestPattern()
+                                    }
+
+                                    AppButton {
+                                        text: "Blackout Mirror"
+                                        width: controlWindow.compactWidth ? parent.width : implicitWidth
+                                        onClicked: settingsController.blackoutMirror()
+                                    }
+                                }
                             }
+                        }
 
-                            RowLayout {
-                                spacing: 10
+                        Rectangle {
+                            width: parent.width
+                            implicitHeight: cameraCardContent.implicitHeight + 48
+                            radius: 30
+                            color: "#f7f2ee"
+                            border.width: 1
+                            border.color: "#ffffff"
+
+                            Column {
+                                id: cameraCardContent
+                                anchors.fill: parent
+                                anchors.margins: 24
+                                spacing: 14
+
+                                Text {
+                                    text: "Camera Backend"
+                                    color: "#6b6661"
+                                    font.family: "Noto Serif"
+                                    font.pixelSize: 24
+                                }
+
                                 Repeater {
-                                    model: [0, 90, 180, 270]
-                                    delegate: AppButton {
-                                        text: modelData + "°"
-                                        onClicked: settingsController.setMirrorOrientation(modelData)
-                                    }
-                                }
-                            }
+                                    model: settingsController.cameraBackends
 
-                            RowLayout {
-                                spacing: 12
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: cameraCardContent.width
+                                        radius: 20
+                                        color: settingsController.cameraBackend === modelData.key ? "#f1eae6" : "#fbf7f3"
+                                        border.width: 1
+                                        border.color: modelData.available ? "#e4ddd7" : "#d9b7b3"
+                                        implicitHeight: backendRow.implicitHeight + 28
 
-                                AppButton {
-                                    text: settingsController.compareFillCrop ? "Compare: Crop + Fit" : "Compare: Full Frame"
-                                    onClicked: settingsController.setCompareFillCrop(!settingsController.compareFillCrop)
-                                }
+                                        Column {
+                                            id: backendRow
+                                            anchors.fill: parent
+                                            anchors.margins: 14
+                                            spacing: 8
 
-                                AppButton {
-                                    text: "Show Test Pattern"
-                                    onClicked: settingsController.showMirrorTestPattern()
-                                }
+                                            Text {
+                                                text: modelData.label
+                                                color: "#6b6661"
+                                                font.family: "Noto Serif"
+                                                font.pixelSize: 18
+                                            }
 
-                                AppButton {
-                                    text: "Blackout Mirror"
-                                    onClicked: settingsController.blackoutMirror()
-                                }
-                            }
-                        }
-                    }
+                                            RowLayout {
+                                                width: parent.width
 
-                    Rectangle {
-                        Layout.fillWidth: true
-                        radius: 30
-                        color: "#f7f2ee"
-                        border.width: 1
-                        border.color: "#ffffff"
+                                                Text {
+                                                    text: modelData.available ? "available" : "missing"
+                                                    color: modelData.available ? "#7a746e" : "#9e4b4b"
+                                                    font.family: "Noto Sans"
+                                                    font.pixelSize: 12
+                                                }
 
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 24
-                            spacing: 14
+                                                Item { Layout.fillWidth: true }
 
-                            Text {
-                                text: "Camera Backend"
-                                color: "#6b6661"
-                                font.family: "Noto Serif"
-                                font.pixelSize: 24
-                            }
-
-                            Repeater {
-                                model: settingsController.cameraBackends
-
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    radius: 20
-                                    color: settingsController.cameraBackend === modelData.key ? "#f1eae6" : "#fbf7f3"
-                                    border.width: 1
-                                    border.color: modelData.available ? "#e4ddd7" : "#d9b7b3"
-                                    implicitHeight: 64
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 14
-
-                                        Text {
-                                            text: modelData.label
-                                            color: "#6b6661"
-                                            font.family: "Noto Serif"
-                                            font.pixelSize: 18
-                                        }
-
-                                        Item { Layout.fillWidth: true }
-
-                                        Text {
-                                            text: modelData.available ? "available" : "missing"
-                                            color: modelData.available ? "#7a746e" : "#9e4b4b"
-                                            font.family: "Noto Sans"
-                                            font.pixelSize: 12
-                                        }
-
-                                        AppButton {
-                                            text: "Use"
-                                            enabled: modelData.available
-                                            onClicked: settingsController.setCameraBackend(modelData.key)
+                                                AppButton {
+                                                    text: "Use"
+                                                    enabled: modelData.available
+                                                    onClicked: settingsController.setCameraBackend(modelData.key)
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            Text {
-                                text: settingsController.dependencySummary
-                                color: "#7a746e"
-                                font.family: "Noto Sans"
-                                font.pixelSize: 13
-                                wrapMode: Text.WordWrap
+                                Text {
+                                    width: parent.width
+                                    text: settingsController.dependencySummary
+                                    color: "#7a746e"
+                                    font.family: "Noto Sans"
+                                    font.pixelSize: 13
+                                    wrapMode: Text.WordWrap
+                                }
                             }
                         }
                     }
