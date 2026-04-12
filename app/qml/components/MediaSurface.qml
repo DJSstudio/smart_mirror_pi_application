@@ -22,20 +22,12 @@ Item {
     property int orientationDegrees: 0
     property color backgroundColor: "#0a0907"
 
-    // Expose playback position for compare seek
-    property real primaryPosition: primaryPane.position
-    property real primaryDuration: primaryPane.duration
+    // Expose playback position — written by the active VideoPane via Connections
+    property real primaryPosition: 0
+    property real primaryDuration: 0
 
     signal primaryFinished()
     signal secondaryFinished()
-
-    function playPrimary()   { primaryPane.play() }
-    function pausePrimary()  { primaryPane.pause() }
-    function seekPrimary(ms) { primaryPane.seek(ms) }
-
-    function playSecondary()   { secondaryPane.play() }
-    function pauseSecondary()  { secondaryPane.pause() }
-    function seekSecondary(ms) { secondaryPane.seek(ms) }
 
     // ---------------------------------------------------------------
     // Background

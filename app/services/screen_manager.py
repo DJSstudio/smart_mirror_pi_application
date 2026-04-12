@@ -62,28 +62,23 @@ class ScreenManager:
 
         if self._control_window is not None:
             ctrl_geom = control_screen.geometry()
+            # Correct Qt 6 xcb sequence: show windowed → move to target screen
+            # geometry → then go fullscreen. setScreen() before first show is
+            # unreliable; geometry on an already-fullscreen window is ignored by WM.
+            self._control_window.show()
             self._control_window.setGeometry(
                 ctrl_geom.x(), ctrl_geom.y(),
                 ctrl_geom.width(), ctrl_geom.height(),
             )
-            self._control_window.setScreen(control_screen)
             self._control_window.showFullScreen()
 
         if self._mirror_window is not None:
             mir_geom = mirror_screen.geometry()
-            if single:
-                # In single-screen mode place mirror behind the control window
-                # (it stays black — the user won't normally see it)
-                self._mirror_window.setGeometry(
-                    mir_geom.x(), mir_geom.y(),
-                    mir_geom.width(), mir_geom.height(),
-                )
-            else:
-                self._mirror_window.setGeometry(
-                    mir_geom.x(), mir_geom.y(),
-                    mir_geom.width(), mir_geom.height(),
-                )
-            self._mirror_window.setScreen(mirror_screen)
+            self._mirror_window.show()
+            self._mirror_window.setGeometry(
+                mir_geom.x(), mir_geom.y(),
+                mir_geom.width(), mir_geom.height(),
+            )
             self._mirror_window.showFullScreen()
 
         return ScreenAssignment(

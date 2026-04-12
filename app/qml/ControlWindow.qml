@@ -147,13 +147,9 @@ ApplicationWindow {
                 }
             }
 
-            // Fade between pages
-            Behavior on source {
-                SequentialAnimation {
-                    NumberAnimation { target: pageLoader; property: "opacity"; to: 0;   duration: 90  }
-                    PropertyAction  { }
-                    NumberAnimation { target: pageLoader; property: "opacity"; to: 1.0; duration: 150 }
-                }
+            onStatusChanged: {
+                if (status === Loader.Error)
+                    console.error("PageLoader failed to load:", source)
             }
         }
     }
