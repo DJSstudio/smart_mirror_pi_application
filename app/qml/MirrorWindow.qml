@@ -41,14 +41,6 @@ ApplicationWindow {
                 }
             }
 
-            // Quick cross-fade when switching modes
-            Behavior on sourceComponent {
-                SequentialAnimation {
-                    NumberAnimation { target: modeLoader; property: "opacity"; to: 0; duration: 120 }
-                    PropertyAction  { }
-                    NumberAnimation { target: modeLoader; property: "opacity"; to: 1; duration: 200 }
-                }
-            }
         }
     }
 
