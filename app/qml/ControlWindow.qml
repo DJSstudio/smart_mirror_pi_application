@@ -269,15 +269,35 @@ ApplicationWindow {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 12
 
-                    TextButton {
+                    Button {
                         text: "New Session"
+                        flat: true
                         onClicked: sessionController.newSession("")
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: "#7d756f"
+                            font.family: "Noto Sans"
+                            font.pixelSize: 13
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
 
-                    TextButton {
+                    Button {
                         text: "Settings"
+                        flat: true
                         enabled: !controlWindow.navigationLocked
                         onClicked: appController.showSettings()
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: parent.enabled ? "#7d756f" : "#b8aea5"
+                            font.family: "Noto Sans"
+                            font.pixelSize: 13
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
                 }
             }
@@ -468,10 +488,20 @@ ApplicationWindow {
 
                     Item { Layout.fillWidth: true }
 
-                    TextButton {
+                    Button {
                         text: "Clear"
+                        flat: true
                         visible: galleryController.selectedIds.length > 0
                         onClicked: galleryController.clearSelection()
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: "#8c8681"
+                            font.family: "Noto Sans"
+                            font.pixelSize: 12
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
                 }
 
