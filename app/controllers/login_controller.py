@@ -4,9 +4,11 @@ Manages the startup QR-scan flow:
   1. Generates a short-lived login token and QR code.
   2. Shows the QR on the mirror; shows the waiting page on the control window.
   3. Polls the share server every 2 seconds for a phone scan.
-  4. On scan: links the phone's device_id to a session (new or resumed),
+  4. If the device has a previous session the phone shows Resume / Start-Fresh
+     options; the user's choice arrives via ``/api/qr/choice``.
+  5. On activation: links device_id to a session (new or resumed),
      refreshes the session/gallery controllers, and navigates to the dashboard.
-  5. If the token expires before scanning it regenerates the QR automatically.
+  6. If the token expires before scanning it regenerates the QR automatically.
 
 Exposed to QML as ``loginController``.
 """
@@ -17,6 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
+from app.models.entities import SessionRecord
 from app.services.gallery_service import GalleryService
 from app.services.mirror_display_service import MirrorDisplayService
 from app.services.network_service import get_local_ip
@@ -37,6 +40,7 @@ class LoginController(QObject):
         *,
         share_server: ShareServer,
         session_service: SessionService,
+        gallery_service: GalleryService,
         session_ctrl,        # SessionController — refreshed after login
         gallery_ctrl,        # GalleryController — refreshed after login
         mirror_display: MirrorDisplayService,
@@ -46,6 +50,7 @@ class LoginController(QObject):
         super().__init__()
         self._server = share_server
         self._session_svc = session_service
+        self._gallery_svc = gallery_service
         self._session_ctrl = session_ctrl
         self._gallery_ctrl = gallery_ctrl
         self._mirror = mirror_display
@@ -60,6 +65,12 @@ class LoginController(QObject):
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll)
+
+        # Register device-history callback so the share server can decide
+        # whether to show the Resume / Start-Fresh choice on the phone.
+        # Called from HTTP handler threads — safe because SQLite WAL +
+        # check_same_thread=False are already configured.
+        self._server.set_device_checker(self._check_device)
 
     # ------------------------------------------------------------------
     # QML properties
@@ -129,39 +140,79 @@ class LoginController(QObject):
     # Private
     # ------------------------------------------------------------------
 
+    def _check_device(self, device_id: str) -> tuple[bool, str, int]:
+        """Callback invoked from the HTTP handler thread.
+
+        Returns *(has_previous, session_name, video_count)*.
+
+        Only returns has_previous=True when the device has a *different*
+        previous session (not the currently active one), so re-scanning the
+        QR mid-session doesn't needlessly prompt for a choice.
+        """
+        try:
+            session = self._session_svc.get_device_session(device_id)
+            if session is None:
+                return False, "", 0
+            # Same session is still active — just silently re-link, no choice.
+            current = self._session_svc.get_active_session()
+            if current and session.id == current.id:
+                return False, "", 0
+            count = self._gallery_svc.count_videos(session_id=session.id)
+            return True, session.name, count
+        except Exception:  # noqa: BLE001
+            return False, "", 0
+
     def _poll(self) -> None:
         if not self._token_hash:
             return
-        status, device_id = self._server.check_login_status(self._token_hash)
+        status, device_id, action = self._server.check_login_status(self._token_hash)
         if status == "activated" and device_id:
             self._stop_poll()
-            self._on_activated(device_id)
+            self._on_activated(device_id, action)
         elif status == "expired":
             LOGGER.debug("Login QR expired — regenerating")
             self.startLogin()
+        # "pending" and "pending_choice": keep waiting
 
-    def _on_activated(self, device_id: str) -> None:
+    def _on_activated(self, device_id: str, action: str | None) -> None:
         try:
-            session, was_resumed = self._session_svc.get_or_resume_for_device(device_id)
-            LOGGER.info(
-                "Login: device=%s  session=%s  resumed=%s",
-                device_id[:8], session.id[:8], was_resumed,
-            )
-            # Refresh controllers to pick up the (possibly switched) session.
+            if action == "new":
+                session = self._new_session_for_device(device_id)
+                msg = f"New session started — {session.name}"
+            elif action == "resume":
+                session, _ = self._session_svc.get_or_resume_for_device(device_id)
+                msg = f"Welcome back — resumed {session.name}"
+            else:
+                # New device or same-session re-scan — use existing auto logic.
+                session, was_resumed = self._session_svc.get_or_resume_for_device(device_id)
+                msg = (
+                    f"Welcome back — resuming {session.name}"
+                    if was_resumed
+                    else f"Session started — {session.name}"
+                )
+
             self._session_ctrl.refresh()
             self._gallery_ctrl.refresh()
-
-            if was_resumed:
-                self._app.showStatus(f"Welcome back — resuming {session.name}")
-            else:
-                self._app.showStatus(f"Session started — {session.name}")
-
+            self._app.showStatus(msg)
             # showDashboard calls close_active() which clears the mirror QR.
             self._app.showDashboard()
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("Login activation failed: %s", exc)
             self._error = str(exc)
             self.changed.emit()
+
+    def _new_session_for_device(self, device_id: str) -> SessionRecord:
+        """Delete all videos from the device's previous session and start fresh."""
+        prev = self._session_svc.get_device_session(device_id)
+        if prev:
+            videos = self._gallery_svc.list_videos(session_id=prev.id)
+            for v in videos:
+                self._gallery_svc.delete_video(v.id)
+            LOGGER.info(
+                "Deleted %d video(s) from previous session %s for fresh start",
+                len(videos), prev.id[:8],
+            )
+        return self._session_svc.new_session_for_device(device_id)
 
     def _stop_poll(self) -> None:
         if self._poll_timer.isActive():

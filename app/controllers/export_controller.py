@@ -140,7 +140,9 @@ class ExportController(QObject):
             video = self._gallery.get_video(video_id)
             if video is None:
                 raise RuntimeError("Video not found.")
-            self._token = self._server.create_token(video_id)
+            session = self._session.get_active_session()
+            owner_device_id = session.device_id if session else ""
+            self._token = self._server.create_token(video_id, owner_device_id)
             url = f"{self._server_url}/export/{self._token}"
             qr_path = self._gen_qr(url, "export_qr.png")
             self._mode = "export"

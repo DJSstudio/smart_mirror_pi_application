@@ -157,6 +157,7 @@ def main() -> int:
     login_ctrl = LoginController(
         share_server=share_server,
         session_service=session_service,
+        gallery_service=gallery_service,
         session_ctrl=session_ctrl,
         gallery_ctrl=gallery_ctrl,
         mirror_display=mirror_display,

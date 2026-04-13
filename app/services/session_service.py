@@ -57,6 +57,19 @@ class SessionService:
         session = self._repo.create_session(f"Session — {stamp}", device_id=device_id)
         return session, False
 
+    def new_session_for_device(self, device_id: str) -> SessionRecord:
+        """Create a brand-new session owned by *device_id* (never resumes).
+
+        Used when the user explicitly chooses "Start Fresh" after scanning QR.
+        Any currently active session is ended by ``create_session``.
+        """
+        stamp = datetime.now().strftime("%B %d, %Y  %H:%M")
+        return self._repo.create_session(f"Session — {stamp}", device_id=device_id)
+
+    def get_device_session(self, device_id: str) -> SessionRecord | None:
+        """Return the most-recent session owned by *device_id* (any status)."""
+        return self._repo.get_latest_session_for_device(device_id)
+
     def end_active_session(self) -> None:
         session = self._repo.get_active_session()
         if session:
