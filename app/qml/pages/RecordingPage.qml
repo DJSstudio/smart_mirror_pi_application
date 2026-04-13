@@ -49,20 +49,11 @@ Item {
                 }
             }
 
-            Item {
+            VideoOutput {
+                id: liveOutput
                 anchors.fill: parent
+                fillMode: VideoOutput.PreserveAspectFit
                 visible: recordingController.previewSource.length > 0
-                layer.enabled: mirrorDisplay && mirrorDisplay.orientationDegrees !== 0
-                transform: Rotation {
-                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                    origin.x: parent.width / 2
-                    origin.y: parent.height / 2
-                }
-                VideoOutput {
-                    id: liveOutput
-                    anchors.fill: parent
-                    fillMode: VideoOutput.PreserveAspectFit
-                }
             }
 
             // Post-stop review player
@@ -79,20 +70,11 @@ Item {
                 }
             }
 
-            Item {
+            VideoOutput {
+                id: reviewOutput
                 anchors.fill: parent
+                fillMode: VideoOutput.PreserveAspectFit
                 visible: recordingController.reviewSource.length > 0
-                layer.enabled: mirrorDisplay && mirrorDisplay.orientationDegrees !== 0
-                transform: Rotation {
-                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                    origin.x: parent.width / 2
-                    origin.y: parent.height / 2
-                }
-                VideoOutput {
-                    id: reviewOutput
-                    anchors.fill: parent
-                    fillMode: VideoOutput.PreserveAspectFit
-                }
             }
 
             // Countdown overlay

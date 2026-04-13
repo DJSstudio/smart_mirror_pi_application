@@ -102,12 +102,22 @@ ApplicationWindow {
                 Component.onCompleted: play()
                 onSourceChanged: { stop(); if (source.toString().length) play() }
             }
+            // For 90°/270° rotation swap w/h so the VideoOutput matches the video's
+            // own aspect ratio.  A landscape VideoOutput fills a landscape video
+            // perfectly (no cropping), and after rotation it fills the portrait screen.
             VideoOutput {
                 id: liveOut
-                anchors.fill: parent
-                // Crop to fill the whole mirror — no black bars.
-                // A real mirror shows edge-to-edge; letterboxing would look wrong.
+                property bool swap: mirrorDisplay && (mirrorDisplay.orientationDegrees % 180 !== 0)
+                width:  swap ? parent.height : parent.width
+                height: swap ? parent.width  : parent.height
+                x: (parent.width  - width)  / 2
+                y: (parent.height - height) / 2
                 fillMode: VideoOutput.PreserveAspectCrop
+                transform: Rotation {
+                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                    origin.x: liveOut.width  / 2
+                    origin.y: liveOut.height / 2
+                }
             }
         }
     }
@@ -127,8 +137,17 @@ ApplicationWindow {
             }
             VideoOutput {
                 id: videoOut
-                anchors.fill: parent
+                property bool swap: mirrorDisplay && (mirrorDisplay.orientationDegrees % 180 !== 0)
+                width:  swap ? parent.height : parent.width
+                height: swap ? parent.width  : parent.height
+                x: (parent.width  - width)  / 2
+                y: (parent.height - height) / 2
                 fillMode: VideoOutput.PreserveAspectCrop
+                transform: Rotation {
+                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                    origin.x: videoOut.width  / 2
+                    origin.y: videoOut.height / 2
+                }
             }
         }
     }
@@ -321,10 +340,19 @@ ApplicationWindow {
 
         VideoOutput {
             id: paneOut
-            anchors.fill: parent
+            property bool swap: pane.rotation % 180 !== 0
+            width:  swap ? parent.height : parent.width
+            height: swap ? parent.width  : parent.height
+            x: (parent.width  - width)  / 2
+            y: (parent.height - height) / 2
             fillMode: pane.fillCrop
                 ? VideoOutput.PreserveAspectCrop
                 : VideoOutput.PreserveAspectFit
+            transform: Rotation {
+                angle: pane.rotation
+                origin.x: paneOut.width  / 2
+                origin.y: paneOut.height / 2
+            }
         }
 
         // Label

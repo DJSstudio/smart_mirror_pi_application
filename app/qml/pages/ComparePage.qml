@@ -95,21 +95,12 @@ Item {
                     Component.onCompleted: play()
                 }
 
-                Item {
+                VideoOutput {
+                    id: leftOutput
                     anchors.fill: parent
-                    layer.enabled: mirrorDisplay && mirrorDisplay.orientationDegrees !== 0
-                    transform: Rotation {
-                        angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                        origin.x: parent.width / 2
-                        origin.y: parent.height / 2
-                    }
-                    VideoOutput {
-                        id: leftOutput
-                        anchors.fill: parent
-                        fillMode: root.fillCrop
-                            ? VideoOutput.PreserveAspectCrop
-                            : VideoOutput.PreserveAspectFit
-                    }
+                    fillMode: root.fillCrop
+                        ? VideoOutput.PreserveAspectCrop
+                        : VideoOutput.PreserveAspectFit
                 }
 
                 Rectangle {
@@ -139,21 +130,12 @@ Item {
                     Component.onCompleted: play()
                 }
 
-                Item {
+                VideoOutput {
+                    id: rightOutput
                     anchors.fill: parent
-                    layer.enabled: mirrorDisplay && mirrorDisplay.orientationDegrees !== 0
-                    transform: Rotation {
-                        angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                        origin.x: parent.width / 2
-                        origin.y: parent.height / 2
-                    }
-                    VideoOutput {
-                        id: rightOutput
-                        anchors.fill: parent
-                        fillMode: root.fillCrop
-                            ? VideoOutput.PreserveAspectCrop
-                            : VideoOutput.PreserveAspectFit
-                    }
+                    fillMode: root.fillCrop
+                        ? VideoOutput.PreserveAspectCrop
+                        : VideoOutput.PreserveAspectFit
                 }
 
                 Rectangle {

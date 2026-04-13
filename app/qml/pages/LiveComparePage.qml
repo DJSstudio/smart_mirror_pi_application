@@ -51,21 +51,12 @@ Item {
                     Component.onCompleted: play()
                 }
 
-                Item {
+                VideoOutput {
+                    id: videoOut
                     anchors.fill: parent
-                    layer.enabled: mirrorDisplay && mirrorDisplay.orientationDegrees !== 0
-                    transform: Rotation {
-                        angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                        origin.x: parent.width / 2
-                        origin.y: parent.height / 2
-                    }
-                    VideoOutput {
-                        id: videoOut
-                        anchors.fill: parent
-                        fillMode: root.fillCrop
-                            ? VideoOutput.PreserveAspectCrop
-                            : VideoOutput.PreserveAspectFit
-                    }
+                    fillMode: root.fillCrop
+                        ? VideoOutput.PreserveAspectCrop
+                        : VideoOutput.PreserveAspectFit
                 }
 
                 // Label
@@ -96,21 +87,12 @@ Item {
                     Component.onCompleted: play()
                 }
 
-                Item {
+                VideoOutput {
+                    id: liveOut
                     anchors.fill: parent
-                    layer.enabled: mirrorDisplay && mirrorDisplay.orientationDegrees !== 0
-                    transform: Rotation {
-                        angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                        origin.x: parent.width / 2
-                        origin.y: parent.height / 2
-                    }
-                    VideoOutput {
-                        id: liveOut
-                        anchors.fill: parent
-                        fillMode: root.fillCrop
-                            ? VideoOutput.PreserveAspectCrop
-                            : VideoOutput.PreserveAspectFit
-                    }
+                    fillMode: root.fillCrop
+                        ? VideoOutput.PreserveAspectCrop
+                        : VideoOutput.PreserveAspectFit
                 }
 
                 // Pulsing live badge
