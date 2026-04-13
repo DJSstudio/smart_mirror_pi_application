@@ -31,6 +31,7 @@ Item {
             primaryLabel: playbackService ? playbackService.primaryLabel : ""
             muted: false
             looping: true
+            orientationDegrees: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
         }
 
         // ── Mirror status ────────────────────────────────────────────

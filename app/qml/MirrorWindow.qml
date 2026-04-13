@@ -108,12 +108,6 @@ ApplicationWindow {
                 // Crop to fill the whole mirror — no black bars.
                 // A real mirror shows edge-to-edge; letterboxing would look wrong.
                 fillMode: VideoOutput.PreserveAspectCrop
-
-                transform: Rotation {
-                    angle: mirrorDisplay.orientationDegrees
-                    origin.x: liveOut.width / 2
-                    origin.y: liveOut.height / 2
-                }
             }
         }
     }
@@ -135,12 +129,6 @@ ApplicationWindow {
                 id: videoOut
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectCrop
-
-                transform: Rotation {
-                    angle: mirrorDisplay.orientationDegrees
-                    origin.x: videoOut.width / 2
-                    origin.y: videoOut.height / 2
-                }
             }
         }
     }
@@ -337,12 +325,6 @@ ApplicationWindow {
             fillMode: pane.fillCrop
                 ? VideoOutput.PreserveAspectCrop
                 : VideoOutput.PreserveAspectFit
-
-            transform: Rotation {
-                angle: pane.rotation
-                origin.x: paneOut.width / 2
-                origin.y: paneOut.height / 2
-            }
         }
 
         // Label
