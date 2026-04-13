@@ -66,13 +66,13 @@ Item {
                 }
             }
 
-            // New session
+            // End session / switch user
             WorkflowCard {
                 Layout.fillWidth: true
-                icon: "＋"
-                label: "New Session"
-                description: "Start a fresh session"
-                onTapped: { sessionController.newSession(); galleryController.refresh() }
+                icon: "⏏"
+                label: "End Session"
+                description: "Scan QR to switch user or start fresh"
+                onTapped: loginController.startLogin()
             }
 
             // Settings

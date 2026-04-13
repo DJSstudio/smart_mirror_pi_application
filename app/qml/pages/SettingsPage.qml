@@ -305,7 +305,11 @@ Item {
                             text: "End"
                             variant: "ghost"
                             implicitWidth: 72; implicitHeight: 34
-                            onClicked: { sessionController.endSession(); galleryController.refresh() }
+                            onClicked: {
+                                sessionController.endSession()
+                                galleryController.refresh()
+                                loginController.startLogin()
+                            }
                         }
                     }
                 }
