@@ -60,6 +60,11 @@ ApplicationWindow {
             Column {
                 anchors.centerIn: parent
                 spacing: 20
+                transform: Rotation {
+                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                    origin.x: width / 2
+                    origin.y: height / 2
+                }
 
                 Text {
                     id: mirrorCountNum
@@ -213,6 +218,11 @@ ApplicationWindow {
                 ColumnLayout {
                     anchors.centerIn: parent
                     spacing: 36
+                    transform: Rotation {
+                        angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                        origin.x: width / 2
+                        origin.y: height / 2
+                    }
 
                     // White mat around the QR — large enough to fill most of the mirror
                     Rectangle {
