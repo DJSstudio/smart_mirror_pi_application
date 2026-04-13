@@ -21,6 +21,7 @@ camera at the *beginning* of the countdown rather than at its end:
 from __future__ import annotations
 
 import logging
+import threading
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
@@ -43,6 +44,7 @@ _MIRROR_REVEAL_AT = 3
 
 class RecordingController(QObject):
     changed = Signal()
+    _bg_stop_done = Signal()  # fired from background thread when stop + prepare completes
 
     def __init__(
         self,
@@ -83,6 +85,11 @@ class RecordingController(QObject):
         self._error = ""
         self._backend_label = camera_service.current_backend_label()
         self._prepared: PreparedRecording | None = None
+
+        # Background stop state — written by bg thread, read on main thread
+        self._bg_result: PreparedRecording | None = None
+        self._bg_error: str = ""
+        self._bg_stop_done.connect(self._on_bg_stop_done)
 
     # ------------------------------------------------------------------
     # Properties
@@ -165,30 +172,59 @@ class RecordingController(QObject):
 
     @Slot()
     def stopRecording(self) -> None:
-        """Stop recording and prepare the clip for review."""
+        """Stop recording; the blocking camera-stop + ffmpeg remux runs in a
+        background thread so the Qt event loop (and UI) stays responsive."""
         if not self._recording:
             return
+        # Stop the elapsed timer here (main thread) before spawning the bg
+        # thread, so _tick_elapsed can't fire while the camera is shutting down
+        # and trigger a false "camera died" error.
+        self._el_timer.stop()
         self._busy = True
         self._emit()
-        try:
-            capture = self._camera.stop(discard=False)
-            self._el_timer.stop()
-            self._mirror.show_idle_black()
-            self._recording = False
-            self._preview_source = ""
-            if capture is None:
-                raise RuntimeError("Recording stopped but no file was produced.")
-            self._prepared = self._recording_svc.prepare_review(
-                capture, trim_start=float(_WARMUP_SECONDS)
-            )
-            self._review_source = self._prepared.file_path.resolve().as_uri()
+
+        def _bg() -> None:
+            error = ""
+            result = None
+            try:
+                capture = self._camera.stop(discard=False)
+                if capture is None:
+                    error = "Recording stopped but no file was produced."
+                else:
+                    result = self._recording_svc.prepare_review(
+                        capture, trim_start=float(_WARMUP_SECONDS)
+                    )
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+            self._bg_result = result
+            self._bg_error = error
+            self._bg_stop_done.emit()
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @Slot()
+    def _on_bg_stop_done(self) -> None:
+        """Runs on the main thread after the background stop + prepare completes."""
+        self._mirror.show_idle_black()
+        self._recording = False
+        self._preview_source = ""
+
+        error = self._bg_error
+        result = self._bg_result
+        self._bg_result = None
+        self._bg_error = ""
+
+        if error:
+            self._set_error(error)
+            self._app.showError(error)
+        else:
+            self._prepared = result
+            if result is not None:
+                self._review_source = result.file_path.resolve().as_uri()
             self._app.showStatus("Recording complete — review and save or discard.")
-        except Exception as exc:  # noqa: BLE001
-            self._set_error(str(exc))
-            self._app.showError(str(exc))
-        finally:
-            self._busy = False
-            self._emit()
+
+        self._busy = False
+        self._emit()
 
     @Slot()
     def saveRecording(self) -> None:
@@ -225,6 +261,7 @@ class RecordingController(QObject):
             self._recording_svc.discard_prepared(self._prepared)
         self._reset_state()
         self._app.showStatus("Recording discarded.")
+        self._emit()
 
     # ------------------------------------------------------------------
     # Used by AppController to gate navigation
