@@ -791,12 +791,6 @@ var did=localStorage.getItem('mirror_device_id')||'';
 var st=document.getElementById('st');
 var dl=document.getElementById('dl');
 
-if(!did){
-  st.className='status err';
-  st.textContent='You must be the session owner to download. Scan the login QR on the mirror first.';
-  return;
-}
-
 fetch('/api/export/verify?token='+encodeURIComponent(token)+'&device_id='+encodeURIComponent(did))
   .then(function(r){return r.json();})
   .then(function(d){
