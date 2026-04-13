@@ -57,14 +57,22 @@ ApplicationWindow {
             visible: recordingController ? recordingController.countdown > 0 : false
             color: "#d9000000"
 
-            Column {
+            Item {
+                id: countdownContent
+                readonly property bool rotated: mirrorDisplay ? mirrorDisplay.orientationDegrees % 180 !== 0 : false
+                width:  rotated ? parent.height : parent.width
+                height: rotated ? parent.width  : parent.height
                 anchors.centerIn: parent
-                spacing: 20
+                layer.enabled: rotated
                 transform: Rotation {
                     angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                    origin.x: width / 2
-                    origin.y: height / 2
+                    origin.x: countdownContent.width  / 2
+                    origin.y: countdownContent.height / 2
                 }
+
+                Column {
+                anchors.centerIn: parent
+                spacing: 20
 
                 Text {
                     id: mirrorCountNum
@@ -112,11 +120,6 @@ ApplicationWindow {
                 id: liveOut
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
-                transform: Rotation {
-                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                    origin.x: liveOut.width  / 2
-                    origin.y: liveOut.height / 2
-                }
             }
         }
     }
@@ -138,11 +141,6 @@ ApplicationWindow {
                 id: videoOut
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
-                transform: Rotation {
-                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                    origin.x: videoOut.width / 2
-                    origin.y: videoOut.height / 2
-                }
             }
         }
     }
@@ -160,7 +158,6 @@ ApplicationWindow {
                 source: mirrorDisplay.primarySource
                 labelText: mirrorDisplay.primaryLabel
                 fillCrop: mirrorDisplay.compareFillCrop
-                rotation: mirrorDisplay.orientationDegrees
             }
 
             Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
@@ -171,7 +168,6 @@ ApplicationWindow {
                 source: mirrorDisplay.secondarySource
                 labelText: mirrorDisplay.secondaryLabel
                 fillCrop: mirrorDisplay.compareFillCrop
-                rotation: mirrorDisplay.orientationDegrees
             }
         }
     }
@@ -215,38 +211,47 @@ ApplicationWindow {
                 anchors.fill: parent
                 color: "#000000"
 
-                ColumnLayout {
+                Item {
+                    id: qrContent
+                    readonly property bool rotated: mirrorDisplay ? mirrorDisplay.orientationDegrees % 180 !== 0 : false
+                    width:  rotated ? parent.height : parent.width
+                    height: rotated ? parent.width  : parent.height
                     anchors.centerIn: parent
-                    spacing: 36
+                    layer.enabled: rotated
                     transform: Rotation {
                         angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                        origin.x: width / 2
-                        origin.y: height / 2
+                        origin.x: qrContent.width  / 2
+                        origin.y: qrContent.height / 2
                     }
 
-                    // White mat around the QR — large enough to fill most of the mirror
-                    Rectangle {
-                        Layout.alignment: Qt.AlignHCenter
-                        width: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.75
-                        height: width
-                        radius: 20
-                        color: "white"
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 36
 
-                        Image {
-                            anchors { fill: parent; margins: 16 }
-                            source: mirrorDisplay.primarySource
-                            fillMode: Image.PreserveAspectFit
-                            smooth: false   // keep QR pixels crisp
-                            cache: false
+                        // White mat around the QR — large enough to fill most of the mirror
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            width: Math.min(qrContent.width, qrContent.height) * 0.75
+                            height: width
+                            radius: 20
+                            color: "white"
+
+                            Image {
+                                anchors { fill: parent; margins: 16 }
+                                source: mirrorDisplay.primarySource
+                                fillMode: Image.PreserveAspectFit
+                                smooth: false   // keep QR pixels crisp
+                                cache: false
+                            }
                         }
-                    }
 
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: mirrorDisplay.primaryLabel
-                        font.pixelSize: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.03
-                        color: "#c8c0b8"
-                        horizontalAlignment: Text.AlignHCenter
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: mirrorDisplay.primaryLabel
+                            font.pixelSize: Math.min(qrContent.width, qrContent.height) * 0.03
+                            color: "#c8c0b8"
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                     }
                 }
             }
@@ -344,11 +349,6 @@ ApplicationWindow {
             fillMode: pane.fillCrop
                 ? VideoOutput.PreserveAspectCrop
                 : VideoOutput.PreserveAspectFit
-            transform: Rotation {
-                angle: pane.rotation
-                origin.x: paneOut.width / 2
-                origin.y: paneOut.height / 2
-            }
         }
 
         // Label
