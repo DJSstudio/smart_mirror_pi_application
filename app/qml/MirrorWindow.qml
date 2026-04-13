@@ -55,11 +55,6 @@ ApplicationWindow {
             id: framingGuide
             anchors.fill: parent
             visible: mirrorDisplay && mirrorDisplay.mode === "live_preview"
-            transform: Rotation {
-                angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                origin.x: framingGuide.width  / 2
-                origin.y: framingGuide.height / 2
-            }
 
             // Top line — 25 % from top
             Rectangle {
