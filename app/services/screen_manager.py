@@ -200,7 +200,7 @@ def _map_touch_to_screen(screen_name: str) -> None:
             if not name:
                 continue
             lower = name.lower()
-            if any(k in lower for k in ("touch", "wacom", "pen", "digitizer", "stylus")):
+            if any(k in lower for k in ("touch", "wacom", "pen", "digitizer", "stylus", "waveshare")):
                 subprocess.run(
                     ["xinput", "--map-to-output", name, screen_name],
                     capture_output=True, timeout=5,
