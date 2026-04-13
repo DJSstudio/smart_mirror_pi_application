@@ -102,13 +102,14 @@ ApplicationWindow {
                 Component.onCompleted: play()
                 onSourceChanged: { stop(); if (source.toString().length) play() }
             }
+
             VideoOutput {
                 id: liveOut
                 anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectCrop
+                fillMode: VideoOutput.PreserveAspectFit
                 transform: Rotation {
                     angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                    origin.x: liveOut.width / 2
+                    origin.x: liveOut.width  / 2
                     origin.y: liveOut.height / 2
                 }
             }
@@ -131,7 +132,7 @@ ApplicationWindow {
             VideoOutput {
                 id: videoOut
                 anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectCrop
+                fillMode: VideoOutput.PreserveAspectFit
                 transform: Rotation {
                     angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
                     origin.x: videoOut.width / 2
