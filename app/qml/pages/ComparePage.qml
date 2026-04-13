@@ -1,4 +1,4 @@
-// Compare page — side-by-side synchronized playback of two videos.
+// Compare page — top/bottom synchronized playback of two videos.
 // Both the control screen (silent) and the mirror (full screen split) are active.
 import QtQuick
 import QtQuick.Layouts
@@ -61,7 +61,7 @@ Item {
         PageHeader {
             Layout.fillWidth: true
             title: "Compare Looks"
-            subtitle: "Synchronized playback  ·  Mirror is showing side-by-side comparison."
+            subtitle: "Synchronized playback  ·  Mirror is showing left/right comparison."
             onBackClicked: {
                 syncTimer.stop()
                 leftPlayer.stop()
@@ -72,7 +72,7 @@ Item {
         }
 
         // ── Split preview ────────────────────────────────────────────
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 12

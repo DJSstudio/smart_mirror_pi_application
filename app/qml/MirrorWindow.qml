@@ -145,10 +145,10 @@ ApplicationWindow {
         }
     }
 
-    // ── Side-by-side compare ─────────────────────────────────────────
+    // ── Top/bottom compare ───────────────────────────────────────────
     Component {
         id: compareComp
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent
             spacing: 0
 
@@ -161,7 +161,7 @@ ApplicationWindow {
                 rotation: mirrorDisplay.orientationDegrees
             }
 
-            Rectangle { width: 2; Layout.fillHeight: true; color: "#111111" }
+            Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
 
             MirrorPane {
                 Layout.fillWidth: true
@@ -174,10 +174,10 @@ ApplicationWindow {
         }
     }
 
-    // ── Live compare (saved + live feed) ─────────────────────────────
+    // ── Live compare (saved top + live feed bottom) ───────────────────
     Component {
         id: liveCompareComp
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent
             spacing: 0
 
@@ -190,7 +190,7 @@ ApplicationWindow {
                 looping: true
             }
 
-            Rectangle { width: 2; Layout.fillHeight: true; color: "#111111" }
+            Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
 
             MirrorPane {
                 Layout.fillWidth: true

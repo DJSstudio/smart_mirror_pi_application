@@ -1,4 +1,4 @@
-// Live Compare page — saved video (left) vs live camera feed (right).
+// Live Compare page — saved video (top) vs live camera feed (bottom).
 // Mirror shows full-screen split.
 import QtQuick
 import QtQuick.Layouts
@@ -29,7 +29,7 @@ Item {
         }
 
         // ── Dual pane ────────────────────────────────────────────────
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 12
