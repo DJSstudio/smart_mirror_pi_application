@@ -112,12 +112,15 @@ class ExportController(QObject):
 
     @Slot()
     def showSessionQr(self) -> None:
-        """Show the session-hub QR on the mirror (gallery page)."""
+        """Show the session-hub QR on the mirror (gallery page, device-gated)."""
         self._stop_countdown()
         self._error = ""
         try:
             self._refresh_server_data()
-            url = self._server_url + "/"
+            session = self._session.get_active_session()
+            owner_device_id = session.device_id if session else ""
+            token = self._server.create_session_token(owner_device_id)
+            url = f"{self._server_url}/session/{token}"
             qr_path = self._gen_qr(url, "session_qr.png")
             self._mode = "session"
             self._export_url = url

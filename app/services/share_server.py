@@ -5,9 +5,11 @@ links.  Runs in a daemon thread so it never blocks the Qt event loop.
 
 Routes
 ──────
-  GET  /                           → HTML gallery (session recordings)
-  GET  /api/videos                 → JSON list of videos
-  GET  /download/<video_id>        → Stream the full video file
+  GET  /                           → HTML gallery (session recordings, open)
+  GET  /api/videos                 → JSON list of videos (open)
+  GET  /download/<video_id>        → Stream the full video file (open)
+  GET  /session/<token>            → Device-verification page then gallery (session owner only)
+  GET  /api/session/videos         → Verify device; return gallery JSON
   GET  /export/<token>             → Device-verification page (must match session owner)
   GET  /api/export/verify          → Verify device_id; issue one-time dl_token
   GET  /export/dl/<dl_token>       → One-time 60-second stream (post-verification)
@@ -35,9 +37,10 @@ from typing import Any, Callable
 
 LOGGER = logging.getLogger(__name__)
 
-_EXPORT_TTL = 600   # seconds (10 min) — export QR link validity
-_LOGIN_TTL  = 300   # seconds  (5 min) — QR login token (auto-regenerated)
-_DL_TTL     = 60    # seconds (60 s)   — one-time download token after verification
+_EXPORT_TTL  = 600   # seconds (10 min) — export QR link validity
+_SESSION_TTL = 1800  # seconds (30 min) — session gallery access token
+_LOGIN_TTL   = 300   # seconds  (5 min) — QR login token (auto-regenerated)
+_DL_TTL      = 60    # seconds (60 s)   — one-time download token after verification
 
 
 @dataclass
@@ -69,6 +72,10 @@ class ShareServer:
 
         # One-time 60-second download tokens issued after device verification.
         self._dl_tokens: dict[str, tuple[str, float]] = {}
+
+        # Session gallery tokens: token → (expiry, required_device_id)
+        # required_device_id="" means any device may view (anonymous session).
+        self._session_tokens: dict[str, tuple[float, str]] = {}
 
         # Login tokens: token_hash → (status, expiry, device_id | None, action | None)
         #   status : "pending" | "pending_choice" | "activated"
@@ -230,6 +237,43 @@ class ShareServer:
         return max(0, int(expiry - time.time()))
 
     # ------------------------------------------------------------------
+    # Session gallery tokens  (View on Phone)
+    # ------------------------------------------------------------------
+
+    def create_session_token(self, required_device_id: str = "") -> str:
+        """Create a 30-minute gallery-access token.
+
+        *required_device_id=""* means any device may browse (anonymous
+        session).  Otherwise only the matching device_id is allowed.
+        """
+        self._purge_expired()
+        token = secrets.token_urlsafe(16)
+        with self._lock:
+            self._session_tokens[token] = (time.time() + _SESSION_TTL, required_device_id)
+        LOGGER.debug("Session gallery token created")
+        return token
+
+    def _check_session_token(self, token: str, device_id: str) -> bool:
+        """Return True if *device_id* is authorised for this session token."""
+        with self._lock:
+            entry = self._session_tokens.get(token)
+        if entry is None:
+            return False
+        expiry, required_did = entry
+        if time.time() > expiry:
+            with self._lock:
+                self._session_tokens.pop(token, None)
+            return False
+        if required_did and device_id != required_did:
+            LOGGER.warning(
+                "Session gallery auth failure: required device %s, got %s",
+                required_did[:8],
+                device_id[:8] if device_id else "(none)",
+            )
+            return False
+        return True
+
+    # ------------------------------------------------------------------
     # Login tokens  (QR-based session start / resume)
     # ------------------------------------------------------------------
 
@@ -360,6 +404,9 @@ class ShareServer:
             expired_dl = [t for t, (_, exp) in self._dl_tokens.items() if now > exp]
             for t in expired_dl:
                 del self._dl_tokens[t]
+            expired_sess = [t for t, (exp, _) in self._session_tokens.items() if now > exp]
+            for t in expired_sess:
+                del self._session_tokens[t]
 
     def _get_snapshot(self) -> tuple[str, list[_VideoSnapshot]]:
         with self._lock:
@@ -394,6 +441,13 @@ class ShareServer:
                         self._export_dl(path[len("/export/dl/"):])
                     elif path.startswith("/export/"):
                         self._export_page(path[len("/export/"):])
+                    elif path == "/api/session/videos":
+                        self._session_videos(
+                            qs.get("token", [""])[0],
+                            qs.get("device_id", [""])[0],
+                        )
+                    elif path.startswith("/session/"):
+                        self._session_page(path[len("/session/"):])
                     elif path == "/api/export/verify":
                         self._export_verify(
                             qs.get("token", [""])[0],
@@ -496,6 +550,44 @@ class ShareServer:
                     self._err(410, "Download link expired or already used")
                     return
                 self._download(video_id)
+
+            # ── Session Gallery ──────────────────────────────────────────
+
+            def _session_page(self, token: str):
+                """HTML page that verifies device identity then shows the gallery."""
+                html = _SESSION_HTML.replace("__TOKEN__", _esc(token))
+                self._html(html)
+
+            def _session_videos(self, token: str, device_id: str):
+                """Verify device, return session gallery JSON."""
+                if not token:
+                    self._json({"ok": False, "error": "Missing token"})
+                    return
+                if not server._check_session_token(token, device_id):
+                    self._json({
+                        "ok": False,
+                        "error": (
+                            "This link has expired, or you must use the same "
+                            "device that started the session to view recordings."
+                        ),
+                    })
+                    return
+                session_name, videos = server._get_snapshot()
+                host = self.headers.get("Host", f"localhost:{server.port}")
+                self._json({
+                    "ok": True,
+                    "session_name": session_name,
+                    "videos": [
+                        {
+                            "id": v.id,
+                            "title": v.title,
+                            "duration": v.duration_label,
+                            "created": v.created_label,
+                            "download_url": f"http://{host}/download/{v.id}",
+                        }
+                        for v in videos
+                    ],
+                })
 
             # ── QR Login ─────────────────────────────────────────────────
 
@@ -613,6 +705,110 @@ def _esc(text: str) -> str:
             .replace(">", "&gt;")
             .replace('"', "&quot;")
     )
+
+
+# ---------------------------------------------------------------------------
+# Session gallery HTML — served when a phone opens /session/<token>
+# ---------------------------------------------------------------------------
+
+_SESSION_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Mirror &mdash; Gallery</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+     background:#f5f0ec;color:#3c3530;padding-bottom:40px}
+#verify-card{display:flex;align-items:center;justify-content:center;
+             min-height:100vh;padding:24px;background:#1a1614}
+.vcard{background:#2a2420;border-radius:20px;padding:36px 28px;
+       max-width:340px;width:100%;text-align:center}
+.vicon{font-size:52px;margin-bottom:16px}
+.status{font-size:15px;padding:16px;border-radius:12px;background:#3a3028;
+        color:#d0c8c0;transition:background .3s,color .3s}
+.err{background:#3a2020!important;color:#e87070!important}
+#gallery{display:none}
+header{background:#2e2925;color:#f0ebe5;padding:20px}
+header h1{font-size:20px;font-weight:600;margin-bottom:4px}
+header p{font-size:13px;color:#a09590}
+.list{padding:16px;display:flex;flex-direction:column;gap:12px}
+.card{background:#fff;border-radius:14px;padding:16px;
+      display:flex;align-items:center;gap:14px;
+      box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.cicon{width:44px;height:44px;border-radius:10px;background:#e8e0da;
+       display:flex;align-items:center;justify-content:center;
+       font-size:20px;flex-shrink:0}
+.info{flex:1;min-width:0}
+.title{font-size:15px;font-weight:600;margin-bottom:3px}
+.meta{font-size:12px;color:#9d9590}
+.dl{background:#3c3530;color:#fff;padding:10px 16px;border-radius:10px;
+    text-decoration:none;font-size:14px;font-weight:600;flex-shrink:0}
+.empty{text-align:center;color:#9d9590;padding:40px 20px;font-size:15px}
+</style>
+</head>
+<body>
+<div id="verify-card">
+  <div class="vcard">
+    <div class="vicon">&#x1f4f9;</div>
+    <div class="status" id="st">Verifying access&hellip;</div>
+  </div>
+</div>
+<div id="gallery"></div>
+<script>
+(function(){
+var token='__TOKEN__';
+var did=localStorage.getItem('mirror_device_id')||'';
+var st=document.getElementById('st');
+var verifyCard=document.getElementById('verify-card');
+var galleryDiv=document.getElementById('gallery');
+
+function esc(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+fetch('/api/session/videos?token='+encodeURIComponent(token)+'&device_id='+encodeURIComponent(did))
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.ok){
+      verifyCard.style.display='none';
+      var items='';
+      if(!d.videos||!d.videos.length){
+        items='<p class="empty">No recordings yet.</p>';
+      }else{
+        d.videos.forEach(function(v){
+          items+='<div class="card">'
+            +'<div class="cicon">&#x25b6;</div>'
+            +'<div class="info">'
+            +'<div class="title">'+esc(v.title)+'</div>'
+            +'<div class="meta">'+esc(v.duration)+' &middot; '+esc(v.created)+'</div>'
+            +'</div>'
+            +'<a href="'+esc(v.download_url)+'" class="dl" download>&#x2B07;</a>'
+            +'</div>';
+        });
+      }
+      galleryDiv.innerHTML=
+        '<header><h1>'+esc(d.session_name||'Smart Mirror')+'</h1>'
+        +'<p>Smart Mirror recordings &mdash; tap &#x2B07; to save to your phone</p></header>'
+        +'<div class="list">'+items+'</div>';
+      galleryDiv.style.display='block';
+    }else{
+      st.className='status err';
+      st.textContent=d.error||'Not authorized or link expired.';
+    }
+  })
+  .catch(function(e){
+    st.className='status err';
+    st.textContent='Could not reach mirror: '+e.message;
+  });
+})();
+</script>
+</body>
+</html>
+"""
 
 
 # ---------------------------------------------------------------------------
