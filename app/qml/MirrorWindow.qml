@@ -48,6 +48,49 @@ ApplicationWindow {
 
         }
 
+        // ── Framing guide — shown during live preview (recording) ────
+        // Two horizontal lines at 25 % and 75 %, two vertical lines at
+        // 25 % and 75 %, forming a centred guide box over the live feed.
+        Item {
+            id: framingGuide
+            anchors.fill: parent
+            visible: mirrorDisplay && mirrorDisplay.mode === "live_preview"
+            transform: Rotation {
+                angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                origin.x: framingGuide.width  / 2
+                origin.y: framingGuide.height / 2
+            }
+
+            // Top line — 25 % from top
+            Rectangle {
+                anchors { left: parent.left; right: parent.right }
+                y: parent.height * 0.25
+                height: 1
+                color: "#55ffffff"
+            }
+            // Bottom line — 25 % from bottom
+            Rectangle {
+                anchors { left: parent.left; right: parent.right }
+                y: parent.height * 0.75
+                height: 1
+                color: "#55ffffff"
+            }
+            // Left line — 25 % from left
+            Rectangle {
+                anchors { top: parent.top; bottom: parent.bottom }
+                x: parent.width * 0.25
+                width: 1
+                color: "#55ffffff"
+            }
+            // Right line — 25 % from right
+            Rectangle {
+                anchors { top: parent.top; bottom: parent.bottom }
+                x: parent.width * 0.75
+                width: 1
+                color: "#55ffffff"
+            }
+        }
+
         // ── Pre-recording countdown overlay ──────────────────────────
         // Shown while the camera pipeline warms up so subjects see a
         // clean countdown instead of pixelated warm-up frames.
