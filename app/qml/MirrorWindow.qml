@@ -101,6 +101,7 @@ ApplicationWindow {
             }
         }
     }
+    }
 
     // ── Live preview (recording mode) ────────────────────────────────
     Component {
