@@ -153,6 +153,49 @@ Item {
             SectionHeader { text: "Screens" }
 
             SettingRow {
+                label: "Auto-detect screens"
+                description: "Assign smallest screen to control, largest to mirror"
+
+                Switch {
+                    checked: settingsController.screenAutoDetect
+                    onToggled: settingsController.setScreenAutoDetect(checked)
+                }
+            }
+
+            // Auto-detect result summary
+            Rectangle {
+                Layout.fillWidth: true
+                visible: settingsController.screenAutoDetect
+                         && settingsController.autoScreenAssignment.available
+                height: 60
+                radius: 10
+                color: "#eef4ee"
+                border.width: 1
+                border.color: "#b8d4b8"
+
+                ColumnLayout {
+                    anchors { fill: parent; leftMargin: 14; rightMargin: 14; topMargin: 8; bottomMargin: 8 }
+                    spacing: 2
+
+                    Text {
+                        text: "Control  →  " + settingsController.autoScreenAssignment.controlName
+                              + "  (" + settingsController.autoScreenAssignment.controlRes + ")"
+                        font.pixelSize: 12
+                        color: "#3a5a3a"
+                    }
+
+                    Text {
+                        text: "Mirror   →  " + settingsController.autoScreenAssignment.mirrorName
+                              + "  (" + settingsController.autoScreenAssignment.mirrorRes + ")"
+                        font.pixelSize: 12
+                        color: "#3a5a3a"
+                    }
+                }
+            }
+
+            // Manual index controls — only shown when auto-detect is off
+            SettingRow {
+                visible: !settingsController.screenAutoDetect
                 label: "Control screen"
                 description: "Which display shows the UI"
 
@@ -166,6 +209,7 @@ Item {
             }
 
             SettingRow {
+                visible: !settingsController.screenAutoDetect
                 label: "Mirror screen"
                 description: "Which display shows the mirror"
 
@@ -183,7 +227,7 @@ Item {
                 onClicked: settingsController.applyScreenAssignment()
             }
 
-            // Detected screens
+            // Connected screens list
             Repeater {
                 model: settingsController.availableScreens
 

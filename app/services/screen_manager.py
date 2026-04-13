@@ -46,21 +46,30 @@ class ScreenManager:
         if not screens:
             raise RuntimeError("No screens detected.")
 
-        control_idx = int(self._settings.get("control_screen_index", 0))
-        mirror_idx = int(self._settings.get("mirror_screen_index", 1))
-
         single = len(screens) == 1
         if single:
             control_screen = screens[0]
             mirror_screen = screens[0]
         else:
-            control_screen = screens[min(control_idx, len(screens) - 1)]
-            mirror_screen = screens[min(mirror_idx, len(screens) - 1)]
-
-        LOGGER.info(
-            "Screen assignment — control: %s  mirror: %s  single=%s",
-            control_screen.name(), mirror_screen.name(), single,
-        )
+            auto_detect = bool(self._settings.get("screen_auto_detect", True))
+            if auto_detect:
+                control_screen, mirror_screen = _auto_assign(screens)
+                LOGGER.info(
+                    "Screen assignment (auto) — control: %s (%dx%d)  mirror: %s (%dx%d)",
+                    control_screen.name(),
+                    control_screen.geometry().width(), control_screen.geometry().height(),
+                    mirror_screen.name(),
+                    mirror_screen.geometry().width(), mirror_screen.geometry().height(),
+                )
+            else:
+                control_idx = int(self._settings.get("control_screen_index", 0))
+                mirror_idx = int(self._settings.get("mirror_screen_index", 1))
+                control_screen = screens[min(control_idx, len(screens) - 1)]
+                mirror_screen = screens[min(mirror_idx, len(screens) - 1)]
+                LOGGER.info(
+                    "Screen assignment (manual) — control: %s  mirror: %s",
+                    control_screen.name(), mirror_screen.name(),
+                )
 
         if self._control_window is not None:
             _place_fullscreen(self._control_window, control_screen)
@@ -85,15 +94,50 @@ class ScreenManager:
         result = []
         for i, screen in enumerate(screens):
             geom = screen.geometry()
+            phys = screen.physicalSize()
+            phys_str = (
+                f"  {phys.width():.0f}×{phys.height():.0f} mm"
+                if phys.width() > 0 else ""
+            )
             result.append({
                 "index": i,
                 "name": screen.name(),
                 "width": geom.width(),
                 "height": geom.height(),
                 "isPrimary": screen == primary,
-                "label": f"Screen {i}: {screen.name()} ({geom.width()}×{geom.height()})",
+                "label": f"Screen {i}: {screen.name()} ({geom.width()}×{geom.height()}{phys_str})",
             })
         return result
+
+    def get_auto_assignment(self) -> dict[str, object]:
+        """Return what auto-detection would assign, for display in Settings."""
+        screens = self._app.screens()
+        if len(screens) < 2:
+            return {"controlName": "", "mirrorName": "", "available": False}
+        ctrl, mirror = _auto_assign(screens)
+        cg, mg = ctrl.geometry(), mirror.geometry()
+        return {
+            "available": True,
+            "controlName": ctrl.name(),
+            "controlRes": f"{cg.width()}×{cg.height()}",
+            "mirrorName": mirror.name(),
+            "mirrorRes": f"{mg.width()}×{mg.height()}",
+        }
+
+
+def _auto_assign(screens) -> tuple:
+    """Return (control_screen, mirror_screen) by sorting on pixel area.
+
+    The smallest screen is assigned to the control window (typically the Pi's
+    7" DSI/HDMI touchscreen at 800×480) and the largest to the mirror display
+    (typically a 1080p or 4K TV).  If all screens have the same resolution the
+    first screen in Qt's list is used as control.
+    """
+    sorted_screens = sorted(
+        screens,
+        key=lambda s: s.geometry().width() * s.geometry().height(),
+    )
+    return sorted_screens[0], sorted_screens[-1]
 
 
 def _place_fullscreen(window, screen) -> None:

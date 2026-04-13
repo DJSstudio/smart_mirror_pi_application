@@ -107,6 +107,19 @@ class SettingsController(QObject):
     def availableScreens(self) -> list:
         return self._screens.available_screens()
 
+    @Property(bool, notify=changed)
+    def screenAutoDetect(self) -> bool:
+        return bool(self._settings.get("screen_auto_detect", True))
+
+    @Slot(bool)
+    def setScreenAutoDetect(self, enabled: bool) -> None:
+        self._settings.set("screen_auto_detect", enabled)
+        self.changed.emit()
+
+    @Property(object, notify=changed)
+    def autoScreenAssignment(self) -> dict:
+        return self._screens.get_auto_assignment()
+
     @Property(int, notify=changed)
     def controlScreenIndex(self) -> int:
         return int(self._settings.get("control_screen_index", 0))
