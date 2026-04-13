@@ -56,21 +56,13 @@ ApplicationWindow {
             anchors.fill: parent
             visible: recordingController ? recordingController.countdown > 0 : false
             color: "#d9000000"
+            transform: Rotation {
+                angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                origin.x: mirrorCountdownOverlay.width  / 2
+                origin.y: mirrorCountdownOverlay.height / 2
+            }
 
-            Item {
-                id: countdownContent
-                readonly property bool rotated: mirrorDisplay ? mirrorDisplay.orientationDegrees % 180 !== 0 : false
-                width:  rotated ? parent.height : parent.width
-                height: rotated ? parent.width  : parent.height
-                anchors.centerIn: parent
-                layer.enabled: rotated
-                transform: Rotation {
-                    angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                    origin.x: countdownContent.width  / 2
-                    origin.y: countdownContent.height / 2
-                }
-
-                Column {
+            Column {
                 anchors.centerIn: parent
                 spacing: 20
 
@@ -100,7 +92,6 @@ ApplicationWindow {
                 }
             }
         }
-    }
     }
 
     // ── Live preview (recording mode) ────────────────────────────────
@@ -208,51 +199,43 @@ ApplicationWindow {
     Component {
         id: qrCodeComp
         Item {
+            transform: Rotation {
+                angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                origin.x: width / 2
+                origin.y: height / 2
+            }
+
             Rectangle {
                 anchors.fill: parent
                 color: "#000000"
 
-                Item {
-                    id: qrContent
-                    readonly property bool rotated: mirrorDisplay ? mirrorDisplay.orientationDegrees % 180 !== 0 : false
-                    width:  rotated ? parent.height : parent.width
-                    height: rotated ? parent.width  : parent.height
+                ColumnLayout {
                     anchors.centerIn: parent
-                    layer.enabled: rotated
-                    transform: Rotation {
-                        angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
-                        origin.x: qrContent.width  / 2
-                        origin.y: qrContent.height / 2
+                    spacing: 36
+
+                    // White mat around the QR — large enough to fill most of the mirror
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        width: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.75
+                        height: width
+                        radius: 20
+                        color: "white"
+
+                        Image {
+                            anchors { fill: parent; margins: 16 }
+                            source: mirrorDisplay.primarySource
+                            fillMode: Image.PreserveAspectFit
+                            smooth: false   // keep QR pixels crisp
+                            cache: false
+                        }
                     }
 
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 36
-
-                        // White mat around the QR — large enough to fill most of the mirror
-                        Rectangle {
-                            Layout.alignment: Qt.AlignHCenter
-                            width: Math.min(qrContent.width, qrContent.height) * 0.75
-                            height: width
-                            radius: 20
-                            color: "white"
-
-                            Image {
-                                anchors { fill: parent; margins: 16 }
-                                source: mirrorDisplay.primarySource
-                                fillMode: Image.PreserveAspectFit
-                                smooth: false   // keep QR pixels crisp
-                                cache: false
-                            }
-                        }
-
-                        Text {
-                            Layout.alignment: Qt.AlignHCenter
-                            text: mirrorDisplay.primaryLabel
-                            font.pixelSize: Math.min(qrContent.width, qrContent.height) * 0.03
-                            color: "#c8c0b8"
-                            horizontalAlignment: Text.AlignHCenter
-                        }
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: mirrorDisplay.primaryLabel
+                        font.pixelSize: Math.min(mirrorWindow.width, mirrorWindow.height) * 0.03
+                        color: "#c8c0b8"
+                        horizontalAlignment: Text.AlignHCenter
                     }
                 }
             }
