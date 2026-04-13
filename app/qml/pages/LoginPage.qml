@@ -123,15 +123,5 @@ Item {
         }
 
         Item { Layout.fillHeight: true }
-
-        // ── Skip button ──────────────────────────────────────────────
-        AppButton {
-            Layout.alignment: Qt.AlignHCenter
-            text: "Continue without scan"
-            variant: "secondary"
-            onClicked: loginController.skipLogin()
-        }
-
-        Item { Layout.preferredHeight: 16 }
     }
 }

@@ -31,7 +31,7 @@ ApplicationWindow {
     Rectangle {
         id: navStrip
         anchors { left: parent.left; top: parent.top; bottom: statusBar.top }
-        width: appController && appController.currentPage === "login" ? 0 : 52
+        width: appController && appController.currentPage === "login" ? 0 : 72
         visible: width > 0
         color: "#e8e0d9"
         z: 2
@@ -40,7 +40,7 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors { fill: parent; topMargin: 16; bottomMargin: 16 }
-            spacing: 4
+            spacing: 6
 
             Repeater {
                 model: [
@@ -51,7 +51,7 @@ ApplicationWindow {
                 ]
 
                 Rectangle {
-                    width: 40; height: 40; radius: 10
+                    width: 56; height: 56; radius: 14
                     Layout.alignment: Qt.AlignHCenter
                     color: appController && appController.currentPage === modelData.page
                            ? "#d0c8c0" : "transparent"
@@ -61,7 +61,7 @@ ApplicationWindow {
                     Text {
                         anchors.centerIn: parent
                         text: modelData.icon
-                        font.pixelSize: 18
+                        font.pixelSize: 24
                         color: appController && appController.currentPage === modelData.page
                                ? "#3c3530" : "#9d9590"
                     }
