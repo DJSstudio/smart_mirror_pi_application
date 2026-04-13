@@ -54,12 +54,76 @@ Item {
                 onClicked: exportController.exportVideo(galleryController.selectedIds[0])
             }
 
+            AppButton {
+                text: "Delete"
+                variant: "danger"
+                enabled: galleryController.canPlay
+                onClicked: deleteConfirm.open()
+            }
+
             Item { Layout.fillWidth: true }
 
             AppButton {
                 text: "Clear"
                 variant: "secondary"
                 onClicked: galleryController.clearSelection()
+            }
+        }
+
+        // ── Delete confirmation popup ─────────────────────────────────
+        Popup {
+            id: deleteConfirm
+            anchors.centerIn: parent
+            modal: true
+            focus: true
+            padding: 24
+
+            background: Rectangle {
+                color: "#1e1a17"
+                radius: 16
+                border.width: 1
+                border.color: "#3a3430"
+            }
+
+            contentItem: ColumnLayout {
+                spacing: 16
+                width: 300
+
+                Text {
+                    text: "Delete this video?"
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                    color: "#f0ebe5"
+                }
+
+                Text {
+                    text: "This cannot be undone."
+                    font.pixelSize: 13
+                    color: "#a09590"
+                    Layout.fillWidth: true
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    AppButton {
+                        Layout.fillWidth: true
+                        text: "Cancel"
+                        variant: "secondary"
+                        onClicked: deleteConfirm.close()
+                    }
+
+                    AppButton {
+                        Layout.fillWidth: true
+                        text: "Delete"
+                        variant: "danger"
+                        onClicked: {
+                            deleteConfirm.close()
+                            galleryController.deleteVideo(galleryController.selectedIds[0])
+                        }
+                    }
+                }
             }
         }
 
@@ -158,13 +222,5 @@ Item {
             Item { Layout.preferredHeight: 16 }
         }
 
-        // ── Delete hint ──────────────────────────────────────────────
-        Text {
-            visible: galleryController.videoCount > 0
-            Layout.alignment: Qt.AlignHCenter
-            text: "To delete a video, tap it to open the player."
-            font.pixelSize: 11
-            color: "#b0a8a2"
-        }
     }
 }

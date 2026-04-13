@@ -85,15 +85,22 @@ class UsbCameraAdapter(BaseCameraAdapter):
 
     def stop(self, discard: bool = False) -> CompletedCapture | None:
         if self._proc and self._proc.poll() is None:
-            try:
-                self._proc.send_signal(signal.SIGINT)
-                self._proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._proc.terminate()
+            if discard:
+                # File not needed — kill immediately rather than waiting for
+                # ffmpeg to flush the MP4 trailer (can block 2-5 s on Pi).
+                self._proc.kill()
+                self._proc.wait()
+            else:
                 try:
-                    self._proc.wait(timeout=2)
+                    self._proc.send_signal(signal.SIGINT)
+                    self._proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self._proc.kill()
+                    self._proc.terminate()
+                    try:
+                        self._proc.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        self._proc.kill()
+                        self._proc.wait()
         self._proc = None
 
         cap_path = self._capture_path

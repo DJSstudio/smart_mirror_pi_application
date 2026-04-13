@@ -66,13 +66,36 @@ def probe_dimensions(path: Path) -> tuple[int | None, int | None]:
 # Transformations
 # ---------------------------------------------------------------------------
 
-def remux_h264_to_mp4(src: Path, dst: Path, fps: int) -> None:
-    """Wrap a raw H.264 stream in an MP4 container (no re-encode)."""
-    _run([
+def remux_h264_to_mp4(src: Path, dst: Path, fps: int, trim_start: float = 0.0) -> None:
+    """Wrap a raw H.264 stream in an MP4 container (no re-encode).
+
+    If trim_start > 0, the first trim_start seconds are dropped via output
+    seek (-ss after -i).  Output seek is used because raw H.264 has no
+    container index for fast input seeking.
+    """
+    cmd = [
         _require("ffmpeg"),
         "-hide_banner", "-loglevel", "warning",
         "-fflags", "+genpts",
         "-r", str(fps),
+        "-i", str(src),
+    ]
+    if trim_start > 0:
+        cmd += ["-ss", str(trim_start)]
+    cmd += ["-c:v", "copy", "-movflags", "+faststart", "-y", str(dst)]
+    _run(cmd)
+
+
+def trim_mp4(src: Path, dst: Path, start_seconds: float) -> None:
+    """Copy src → dst, discarding the first start_seconds via fast input seek.
+
+    MP4 containers have an index, so -ss before -i jumps straight to the
+    nearest keyframe without decoding discarded frames.
+    """
+    _run([
+        _require("ffmpeg"),
+        "-hide_banner", "-loglevel", "warning",
+        "-ss", str(start_seconds),
         "-i", str(src),
         "-c:v", "copy",
         "-movflags", "+faststart",

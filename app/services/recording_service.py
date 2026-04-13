@@ -14,6 +14,7 @@ from app.media.ffmpeg_tools import (
     probe_duration,
     remux_h264_to_mp4,
     safe_unlink,
+    trim_mp4,
 )
 from app.models.entities import CompletedCapture, PreparedRecording, VideoRecord
 from app.services.session_service import SessionService
@@ -36,8 +37,14 @@ class RecordingService:
         self._repo = repository
         self._sessions = session_service
 
-    def prepare_review(self, capture: CompletedCapture) -> PreparedRecording:
-        """Ensure the capture is in MP4 format, ready for Qt playback."""
+    def prepare_review(
+        self, capture: CompletedCapture, trim_start: float = 0.0
+    ) -> PreparedRecording:
+        """Ensure the capture is in MP4 format, ready for Qt playback.
+
+        trim_start — seconds to drop from the beginning of the raw file.
+        Used to remove the camera warm-up period recorded during countdown.
+        """
         if capture.file_format == "mp4":
             if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
                 raise RuntimeError(
@@ -45,6 +52,18 @@ class RecordingService:
                     "If using the Pi camera, enable it via raspi-config → Interface Options → Camera and reboot. "
                     "You can also switch to the USB backend in Settings."
                 )
+            if trim_start > 0:
+                trimmed = capture.file_path.parent / (
+                    capture.file_path.stem + "_trimmed.mp4"
+                )
+                LOGGER.info("Trimming %.1fs warmup from %s", trim_start, capture.file_path)
+                try:
+                    trim_mp4(capture.file_path, trimmed, trim_start)
+                except Exception as exc:  # noqa: BLE001
+                    safe_unlink(trimmed)
+                    raise RuntimeError(f"Failed to trim recording: {exc}") from exc
+                safe_unlink(capture.file_path)
+                return PreparedRecording(file_path=trimmed, backend=capture.backend)
             return PreparedRecording(file_path=capture.file_path, backend=capture.backend)
 
         if capture.file_format == "h264":
@@ -56,9 +75,12 @@ class RecordingService:
                 )
             fps = int(self._settings.get("camera_fps", 30))
             mp4_path = capture.file_path.with_suffix(".mp4")
-            LOGGER.info("Remuxing H.264 → MP4: %s → %s", capture.file_path, mp4_path)
+            LOGGER.info(
+                "Remuxing H.264 → MP4 (trim=%.1fs): %s → %s",
+                trim_start, capture.file_path, mp4_path,
+            )
             try:
-                remux_h264_to_mp4(capture.file_path, mp4_path, fps)
+                remux_h264_to_mp4(capture.file_path, mp4_path, fps, trim_start=trim_start)
             except Exception as exc:  # noqa: BLE001
                 safe_unlink(capture.file_path)
                 raise RuntimeError(f"Failed to process recording: {exc}") from exc

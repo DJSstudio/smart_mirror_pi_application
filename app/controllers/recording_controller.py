@@ -178,7 +178,9 @@ class RecordingController(QObject):
             self._preview_source = ""
             if capture is None:
                 raise RuntimeError("Recording stopped but no file was produced.")
-            self._prepared = self._recording_svc.prepare_review(capture)
+            self._prepared = self._recording_svc.prepare_review(
+                capture, trim_start=float(_WARMUP_SECONDS)
+            )
             self._review_source = self._prepared.file_path.resolve().as_uri()
             self._app.showStatus("Recording complete — review and save or discard.")
         except Exception as exc:  # noqa: BLE001
