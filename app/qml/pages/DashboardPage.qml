@@ -39,7 +39,7 @@ Item {
 
             Item { Layout.fillWidth: true }
 
-            // Settings button — top-right corner
+            // Settings button
             Rectangle {
                 width: 44; height: 44; radius: 999
                 color: _settingsMa.containsMouse ? "#EDE8E3" : "#F0EBE5"
@@ -68,31 +68,233 @@ Item {
             Layout.fillHeight: true
             spacing: 16
 
-            // Record a Look — primary CTA (inverted, charcoal)
-            HeroTile {
+            // ── Record a Look ─────────────────────────────────────────
+            Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                icon: "⏺"
-                label: "Record a Look"
-                description: "5-second countdown, then capture"
-                inverted: true
-                onTapped: appController.showRecording()
+                radius: 20
+                color: _recMa.containsMouse ? "#2E2A27" : "#1C1917"
+                clip: true
+
+                Behavior on color { ColorAnimation { duration: 120 } }
+
+                ColumnLayout {
+                    anchors { fill: parent; margins: 28 }
+                    spacing: 0
+
+                    // Session stat chip — top left
+                    Rectangle {
+                        visible: sessionController && sessionController.videoCount > 0
+                        radius: 999
+                        color: "#2E2A27"
+                        width: _statTxt.implicitWidth + 16; height: 28
+
+                        Text {
+                            id: _statTxt
+                            anchors.centerIn: parent
+                            text: (sessionController ? sessionController.videoCount : 0)
+                                  + " look" + (sessionController && sessionController.videoCount === 1 ? "" : "s") + " this session"
+                            font.pixelSize: 12
+                            font.weight: Font.Medium
+                            color: "#C4956A"
+                        }
+                    }
+
+                    Item { Layout.fillHeight: true }
+
+                    // Icon circle
+                    Rectangle {
+                        width: 64; height: 64; radius: 999
+                        color: "#2E2A27"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "⏺"
+                            font.pixelSize: 28
+                            color: "#C4956A"
+                        }
+                    }
+
+                    Item { Layout.preferredHeight: 16 }
+
+                    Text {
+                        text: "Record a Look"
+                        font.pixelSize: 22
+                        font.weight: Font.Bold
+                        color: "#FFFFFF"
+                    }
+
+                    Item { Layout.preferredHeight: 6 }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "5-second countdown, then capture"
+                        font.pixelSize: 13
+                        color: "#9A9088"
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                MouseArea {
+                    id: _recMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: appController.showRecording()
+                }
             }
 
-            // My Looks — gallery
-            HeroTile {
+            // ── My Looks ──────────────────────────────────────────────
+            Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                icon: "▦"
-                label: "My Looks"
-                description: sessionController && sessionController.videoCount > 0
-                    ? sessionController.videoCount + " look"
-                      + (sessionController.videoCount === 1 ? "" : "s") + " ready to compare"
-                    : "No looks recorded yet"
-                enabled: sessionController ? sessionController.videoCount > 0 : false
-                onTapped: {
-                    if (galleryController) galleryController.refresh()
-                    appController.showGallery()
+                radius: 20
+                color: "#FFFFFF"
+                border.width: 1
+                border.color: "#E8E2DC"
+                clip: true
+
+                // ── With thumbnail (looks exist) ──────────────────────
+                Item {
+                    anchors.fill: parent
+                    visible: galleryController && galleryController.videoCount > 0
+
+                    // Latest look thumbnail as full-bleed background
+                    Image {
+                        id: _latestThumb
+                        anchors.fill: parent
+                        source: (galleryController && galleryController.videos
+                                 && galleryController.videos.length > 0)
+                                ? galleryController.videos[0].thumbnailUrl : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+
+                        // Subtle scale on hover
+                        scale: _looksMa.containsMouse ? 1.04 : 1.0
+                        Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutQuad } }
+                    }
+
+                    // Gradient overlay — lighter at top, darker at bottom for text
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "#55000000" }
+                            GradientStop { position: 0.5; color: "#22000000" }
+                            GradientStop { position: 1.0; color: "#CC000000" }
+                        }
+                    }
+
+                    // Look count badge — top left
+                    Rectangle {
+                        anchors { top: parent.top; left: parent.left; margins: 20 }
+                        radius: 999
+                        color: "#CC000000"
+                        width: _cntTxt.implicitWidth + 16; height: 28
+
+                        Text {
+                            id: _cntTxt
+                            anchors.centerIn: parent
+                            text: (galleryController ? galleryController.videoCount : 0)
+                                  + " look" + (galleryController && galleryController.videoCount === 1 ? "" : "s")
+                            font.pixelSize: 12
+                            font.weight: Font.Medium
+                            color: "#FFFFFF"
+                        }
+                    }
+
+                    // Latest look title badge — top right
+                    Rectangle {
+                        anchors { top: parent.top; right: parent.right; margins: 20 }
+                        radius: 6
+                        color: "#CC000000"
+                        width: Math.min(_latestLbl.implicitWidth + 14, 140); height: 28
+                        clip: true
+
+                        Text {
+                            id: _latestLbl
+                            anchors.centerIn: parent
+                            width: parent.width - 14
+                            text: (galleryController && galleryController.videos
+                                   && galleryController.videos.length > 0)
+                                  ? galleryController.videos[0].title : ""
+                            font.pixelSize: 12
+                            color: "#FFFFFF"
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    // Bottom text overlay
+                    ColumnLayout {
+                        anchors {
+                            left: parent.left; right: parent.right
+                            bottom: parent.bottom; margins: 24
+                        }
+                        spacing: 4
+
+                        Text {
+                            text: "My Looks"
+                            font.pixelSize: 22
+                            font.weight: Font.Bold
+                            color: "#FFFFFF"
+                        }
+
+                        Text {
+                            text: "Tap to review, compare or export"
+                            font.pixelSize: 13
+                            color: "#CCE8E2DC"
+                        }
+                    }
+                }
+
+                // ── Empty state (no looks yet) ────────────────────────
+                ColumnLayout {
+                    anchors { fill: parent; margins: 28 }
+                    visible: !galleryController || galleryController.videoCount === 0
+                    spacing: 0
+
+                    Rectangle {
+                        width: 64; height: 64; radius: 999
+                        color: "#F0EBE5"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "▦"
+                            font.pixelSize: 28
+                            color: "#C4BCBA"
+                        }
+                    }
+
+                    Item { Layout.fillHeight: true }
+
+                    Text {
+                        text: "My Looks"
+                        font.pixelSize: 22
+                        font.weight: Font.Bold
+                        color: "#B0A89E"
+                    }
+
+                    Item { Layout.preferredHeight: 6 }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Record your first look to see it here"
+                        font.pixelSize: 13
+                        color: "#C4BCBA"
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                MouseArea {
+                    id: _looksMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: galleryController && galleryController.videoCount > 0
+                                 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    enabled: galleryController && galleryController.videoCount > 0
+                    onClicked: {
+                        if (galleryController) galleryController.refresh()
+                        appController.showGallery()
+                    }
                 }
             }
         }
@@ -102,7 +304,6 @@ Item {
             Layout.fillWidth: true
             spacing: 16
 
-            // Share to Phone
             ActionTile {
                 Layout.fillWidth: true
                 icon: "📱"
@@ -115,7 +316,6 @@ Item {
                 }
             }
 
-            // End Session / Switch User
             ActionTile {
                 Layout.fillWidth: true
                 icon: "⏏"
@@ -126,83 +326,7 @@ Item {
         }
     }
 
-    // ── HeroTile — large primary action card ──────────────────────────
-    component HeroTile: Rectangle {
-        id: _hero
-
-        property string icon: ""
-        property string label: ""
-        property string description: ""
-        property bool inverted: false
-
-        signal tapped()
-
-        radius: 20
-        color: !_hero.enabled          ? "#F0EBE5"
-             : _hero.inverted          ? (_hMa.containsMouse ? "#2E2A27" : "#1C1917")
-             : _hMa.containsMouse      ? "#F5F0EA"
-             :                           "#FFFFFF"
-        border.width: _hero.inverted ? 0 : 1
-        border.color: "#E8E2DC"
-
-        Behavior on color { ColorAnimation { duration: 120 } }
-
-        ColumnLayout {
-            anchors { fill: parent; margins: 28 }
-            spacing: 0
-
-            // Icon circle
-            Rectangle {
-                width: 64; height: 64; radius: 999
-                color: _hero.inverted ? "#2E2A27"
-                     : !_hero.enabled ? "#E8E2DC"
-                     :                  "#F0EBE5"
-
-                Text {
-                    anchors.centerIn: parent
-                    text: _hero.icon
-                    font.pixelSize: 28
-                    color: _hero.inverted ? "#C4956A"
-                         : !_hero.enabled ? "#B0A89E"
-                         :                  "#1C1917"
-                }
-            }
-
-            Item { Layout.fillHeight: true }
-
-            Text {
-                text: _hero.label
-                font.pixelSize: 22
-                font.weight: Font.Bold
-                color: _hero.inverted ? "#FFFFFF"
-                     : !_hero.enabled ? "#B0A89E"
-                     :                  "#1C1917"
-            }
-
-            Item { Layout.preferredHeight: 6 }
-
-            Text {
-                Layout.fillWidth: true
-                text: _hero.description
-                font.pixelSize: 13
-                color: _hero.inverted ? "#9A9088"
-                     : !_hero.enabled ? "#C4BCBA"
-                     :                  "#6B6560"
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        MouseArea {
-            id: _hMa
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: _hero.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-            enabled: _hero.enabled
-            onClicked: _hero.tapped()
-        }
-    }
-
-    // ── ActionTile — smaller secondary action card ────────────────────
+    // ── ActionTile ────────────────────────────────────────────────────
     component ActionTile: Rectangle {
         id: _action
 
@@ -226,7 +350,6 @@ Item {
             anchors { fill: parent; margins: 20 }
             spacing: 16
 
-            // Icon
             Rectangle {
                 width: 48; height: 48; radius: 12
                 color: _action.enabled ? "#F0EBE5" : "#ECEAE7"
@@ -239,7 +362,6 @@ Item {
                 }
             }
 
-            // Text
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 3
@@ -260,11 +382,10 @@ Item {
                 }
             }
 
-            // Chevron
             Text {
                 text: "›"
                 font.pixelSize: 22
-                color: _action.enabled ? "#C4956A" : "#D8D4D0"
+                color: "#C4956A"
                 visible: _action.enabled
             }
         }
