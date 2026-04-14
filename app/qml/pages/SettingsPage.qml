@@ -164,7 +164,7 @@ Item {
                              && settingsController.autoScreenAssignment.available
                     Layout.fillWidth: true
                     height: _assignCol.implicitHeight + 20
-                    color: "#0a180c"
+                    color: "#F0F7F0"
                     ColumnLayout {
                         id: _assignCol
                         anchors {
@@ -176,12 +176,12 @@ Item {
                         Text {
                             text: "Control  →  " + settingsController.autoScreenAssignment.controlName
                                   + "  (" + settingsController.autoScreenAssignment.controlRes + ")"
-                            font.pixelSize: 12; color: "#5ab868"
+                            font.pixelSize: 12; color: "#2E6B3A"
                         }
                         Text {
                             text: "Mirror   →  " + settingsController.autoScreenAssignment.mirrorName
                                   + "  (" + settingsController.autoScreenAssignment.mirrorRes + ")"
-                            font.pixelSize: 12; color: "#5ab868"
+                            font.pixelSize: 12; color: "#2E6B3A"
                         }
                     }
                 }
@@ -229,16 +229,16 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         height: 34
-                        color: "#0f0d0b"
+                        color: "#F7F5F2"
                         Rectangle {
                             anchors { top: parent.top; left: parent.left; right: parent.right }
-                            height: 1; color: "#232018"
+                            height: 1; color: "#E8E2DC"
                         }
                         Text {
                             anchors { fill: parent; leftMargin: 16 }
                             verticalAlignment: Text.AlignVCenter
                             text: modelData.label
-                            font.pixelSize: 12; color: "#5a5248"
+                            font.pixelSize: 12; color: "#6B6560"
                         }
                     }
                 }
@@ -345,7 +345,7 @@ Item {
         font.weight: Font.Bold
         font.letterSpacing: 1.4
         font.capitalization: Font.AllUppercase
-        color: "#6a6058"
+        color: "#A09890"
     }
 
     // Rounded card that groups related setting rows
@@ -353,9 +353,9 @@ Item {
         Layout.fillWidth: true
         Layout.topMargin: 2
         radius: 12
-        color: "#161210"
+        color: "#FFFFFF"
         border.width: 1
-        border.color: "#2a2520"
+        border.color: "#E8E2DC"
         clip: true
         implicitHeight: _cardLayout.implicitHeight
         default property alias rows: _cardLayout.data
@@ -393,14 +393,14 @@ Item {
                 Text {
                     text: _rowRoot.label
                     font.pixelSize: 14
-                    color: "#e8e0d8"
+                    color: "#1C1917"
                     Layout.fillWidth: true
                 }
                 Text {
                     visible: _rowRoot.description.length > 0
                     text: _rowRoot.description
                     font.pixelSize: 12
-                    color: "#7a7068"
+                    color: "#6B6560"
                     wrapMode: Text.Wrap
                     Layout.fillWidth: true
                 }
@@ -419,6 +419,6 @@ Item {
     component RowDivider: Rectangle {
         Layout.fillWidth: true
         height: 1
-        color: "#2a2520"
+        color: "#E8E2DC"
     }
 }

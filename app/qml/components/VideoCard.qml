@@ -1,4 +1,4 @@
-// Gallery video card — thumbnail, title, duration badge, selection checkbox.
+// Gallery video card — larger, cleaner retail style.
 import QtQuick
 import QtQuick.Layouts
 
@@ -11,133 +11,130 @@ Rectangle {
     property string thumbnailUrl: ""
     property string createdLabel: ""
     property bool selected: false
-    property int selectionIndex: -1  // 1 or 2 when selected
+    property int selectionIndex: -1
 
     signal tapped()
     signal checkboxTapped()
 
-    width: 160
-    height: 220
+    width: 200
+    height: 270
     radius: 16
-    color: root.selected ? "#e2d8cf" : "#f4ede8"
+    color: "#FFFFFF"
     border.width: root.selected ? 2 : 1
-    border.color: root.selected ? "#a09080" : "#d6cdc5"
+    border.color: root.selected ? "#1C1917" : "#E8E2DC"
     clip: true
 
-    // Thumbnail
-    Image {
-        id: thumb
+    scale: _bodyMa.containsMouse ? 1.02 : 1.0
+    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+
+    // ── Thumbnail ────────────────────────────────────────────────────
+    Item {
+        id: _thumbArea
         anchors { top: parent.top; left: parent.left; right: parent.right }
         height: parent.height * 0.62
-        fillMode: Image.PreserveAspectCrop
-        source: root.thumbnailUrl
-        visible: root.thumbnailUrl.length > 0
+        clip: true
 
+        // Background fill
         Rectangle {
             anchors.fill: parent
-            color: "transparent"
-            // Subtle vignette at bottom
+            color: "#F0EBE5"
+        }
+
+        Image {
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            source: root.thumbnailUrl
+            visible: root.thumbnailUrl.length > 0
+        }
+
+        // Placeholder icon
+        Text {
+            anchors.centerIn: parent
+            visible: root.thumbnailUrl.length === 0
+            text: "▶"
+            font.pixelSize: 32
+            color: "#B0A89E"
+        }
+
+        // Gradient vignette at bottom
+        Rectangle {
+            anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.6; color: "transparent" }
-                GradientStop { position: 1.0; color: "#44000000" }
+                GradientStop { position: 0.55; color: "transparent" }
+                GradientStop { position: 1.0;  color: "#55000000" }
+            }
+        }
+
+        // Duration badge
+        Rectangle {
+            anchors { left: parent.left; bottom: parent.bottom; margins: 10 }
+            radius: 6
+            color: "#CC000000"
+            width: _durTxt.implicitWidth + 12
+            height: 22
+
+            Text {
+                id: _durTxt
+                anchors.centerIn: parent
+                text: root.durationLabel
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                color: "#FFFFFF"
             }
         }
     }
 
-    // Placeholder when no thumbnail
-    Rectangle {
-        anchors { top: parent.top; left: parent.left; right: parent.right }
-        height: parent.height * 0.62
-        visible: root.thumbnailUrl.length === 0
-        color: "#e2dbd5"
-
-        Text {
-            anchors.centerIn: parent
-            text: "▶"
-            font.pixelSize: 28
-            color: "#a09590"
-        }
-    }
-
-    // Duration badge
-    Rectangle {
-        anchors { right: parent.right; bottom: parent.top; rightMargin: 8 }
-        anchors.bottomMargin: -(parent.height * 0.62) + 8
-        radius: 999
-        color: "#cc0a0804"
-        width: durationText.implicitWidth + 12
-        height: 22
-
-        Text {
-            id: durationText
-            anchors.centerIn: parent
-            text: root.durationLabel
-            font.pixelSize: 11
-            font.weight: Font.DemiBold
-            color: "#f5ede8"
-        }
-    }
-
-    // Title + date
+    // ── Text info ────────────────────────────────────────────────────
     ColumnLayout {
         anchors {
-            left: parent.left; right: parent.right
-            top: parent.top; topMargin: parent.height * 0.62 + 8
-            bottom: parent.bottom; bottomMargin: 8
+            top: _thumbArea.bottom; topMargin: 10
+            left: parent.left; leftMargin: 12
+            right: parent.right; rightMargin: 12
+            bottom: parent.bottom; bottomMargin: 10
         }
-        anchors.leftMargin: 10
-        anchors.rightMargin: 10
-        spacing: 2
+        spacing: 3
 
         Text {
             Layout.fillWidth: true
             text: root.title
-            font.family: "Noto Serif, Georgia, serif"
-            font.pixelSize: 13
+            font.pixelSize: 14
             font.weight: Font.DemiBold
-            color: "#3c3530"
+            color: "#1C1917"
             elide: Text.ElideRight
         }
 
         Text {
             Layout.fillWidth: true
             text: root.createdLabel
-            font.pixelSize: 11
-            color: "#9d9590"
+            font.pixelSize: 12
+            color: "#A09890"
             elide: Text.ElideRight
         }
     }
 
-    // Card body tap → play.  Declared before the checkbox so the checkbox
-    // (higher z-order, declared later) can intercept its own taps.
+    // ── Tap body → play ──────────────────────────────────────────────
     MouseArea {
+        id: _bodyMa
         anchors.fill: parent
+        hoverEnabled: true
         onClicked: root.tapped()
     }
 
-    // Checkbox — always visible in the top-right corner of the thumbnail.
-    // Declared after the body MouseArea so it sits on top and captures
-    // taps independently from the card body.
+    // ── Selection circle (top-right) ─────────────────────────────────
     Rectangle {
-        id: checkbox
-        anchors { top: parent.top; right: parent.right; topMargin: 8; rightMargin: 8 }
-        width: 30; height: 30
-        radius: 999
-
-        // Filled when selected, outlined when not
-        color: root.selected ? "#7a6a5a" : "transparent"
+        anchors { top: parent.top; right: parent.right; margins: 10 }
+        width: 32; height: 32; radius: 999
+        color: root.selected ? "#1C1917" : "transparent"
         border.width: root.selected ? 0 : 2
-        border.color: "#ffffffcc"
+        border.color: "#FFFFFFCC"
 
-        // Outer shadow ring makes the outline visible against any thumbnail
+        // Outer shadow ring — keeps outline visible on any thumbnail
         Rectangle {
             visible: !root.selected
             anchors.centerIn: parent
             width: parent.width + 2; height: parent.height + 2
-            radius: 999
-            color: "transparent"
-            border.width: 1
-            border.color: "#44000000"
+            radius: 999; color: "transparent"
+            border.width: 1; border.color: "#44000000"
             z: -1
         }
 
@@ -145,18 +142,13 @@ Rectangle {
             anchors.centerIn: parent
             visible: root.selected
             text: root.selectionIndex > 0 ? root.selectionIndex.toString() : "✓"
-            font.pixelSize: 14
-            font.weight: Font.Bold
-            color: "#fff8f4"
+            font.pixelSize: 14; font.weight: Font.Bold
+            color: "#FFFFFF"
         }
 
         MouseArea {
-            anchors.fill: parent
-            anchors.margins: -6   // extra touch target padding
-            onClicked: {
-                mouse.accepted = true
-                root.checkboxTapped()
-            }
+            anchors { fill: parent; margins: -6 }
+            onClicked: { mouse.accepted = true; root.checkboxTapped() }
         }
     }
 }

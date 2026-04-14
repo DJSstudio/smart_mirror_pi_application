@@ -1,6 +1,4 @@
-// Export / Share page
-// Shows a QR code on the control screen (and mirror) that phones scan
-// to download a video or browse the session gallery.
+// Export / Share page — QR code for phone download or session gallery.
 import QtQuick
 import QtQuick.Layouts
 import "../components"
@@ -15,9 +13,9 @@ Item {
         // ── Header ──────────────────────────────────────────────────
         PageHeader {
             Layout.fillWidth: true
-            title: exportController.mode === "export" ? "Export Video" : "View on Phone"
+            title: exportController.mode === "export" ? "Share This Look" : "View on Phone"
             subtitle: exportController.mode === "export"
-                      ? "Scan the QR code to download the video to your phone."
+                      ? "Scan the QR code to download this recording to your phone."
                       : "Scan to open your session gallery on your phone."
             onBackClicked: exportController.close()
         }
@@ -27,9 +25,9 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: 20
-            color: "#0d0b09"
+            color: "#FFFFFF"
             border.width: 1
-            border.color: "#1c1814"
+            border.color: "#E8E2DC"
 
             // Error state
             ColumnLayout {
@@ -37,49 +35,52 @@ Item {
                 visible: exportController.errorMessage.length > 0
                 spacing: 12
 
-                Text {
+                Rectangle {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "⚠"
-                    font.pixelSize: 40
-                    color: "#e05050"
+                    width: 64; height: 64; radius: 999
+                    color: "#FFF0F0"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "⚠"
+                        font.pixelSize: 28
+                        color: "#8B2E2E"
+                    }
                 }
+
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 280
+                    Layout.preferredWidth: 300
                     text: exportController.errorMessage
-                    font.pixelSize: 13
-                    color: "#d0b8b8"
+                    font.pixelSize: 14
+                    color: "#1C1917"
                     wrapMode: Text.WordWrap
                     horizontalAlignment: Text.AlignHCenter
                 }
-                Text {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: "Install qrcode: pip install \"qrcode[pil]\""
-                    font.pixelSize: 11
-                    color: "#7a6a6a"
-                }
             }
 
-            // QR code + info
+            // QR + info
             ColumnLayout {
                 anchors.centerIn: parent
                 visible: exportController.errorMessage.length === 0
                          && exportController.qrImageUrl.length > 0
-                spacing: 20
+                spacing: 24
 
-                // QR image in white mat (mirrors the phone's scanner UI)
+                // QR in white mat with subtle shadow border
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
-                    width: 220; height: 220
-                    radius: 16
-                    color: "white"
+                    width: 230; height: 230
+                    radius: 20
+                    color: "#FFFFFF"
+                    border.width: 1
+                    border.color: "#E8E2DC"
 
                     Image {
-                        anchors { fill: parent; margins: 12 }
+                        anchors { fill: parent; margins: 14 }
                         source: exportController.qrImageUrl
                         fillMode: Image.PreserveAspectFit
-                        smooth: false   // keep QR pixels crisp
-                        cache: false    // always reload on change
+                        smooth: false
+                        cache: false
                     }
                 }
 
@@ -88,71 +89,58 @@ Item {
                     Layout.alignment: Qt.AlignHCenter
                     visible: exportController.mode === "export"
                     radius: 999
-                    color: exportController.remainingSeconds < 120
-                           ? "#7a2c2c" : "#2c3a2c"
-                    width: expiryRow.implicitWidth + 20; height: 30
+                    color: exportController.remainingSeconds < 120 ? "#FFF0F0" : "#F0F7F0"
+                    border.width: 1
+                    border.color: exportController.remainingSeconds < 120 ? "#E8C0C0" : "#B8D8B8"
+                    width: _expRow.implicitWidth + 24; height: 36
 
                     RowLayout {
-                        id: expiryRow
+                        id: _expRow
                         anchors.centerIn: parent
-                        spacing: 6
+                        spacing: 8
+
                         Text {
                             text: "⏱"
-                            font.pixelSize: 13
-                            color: "#d0d8d0"
+                            font.pixelSize: 14
+                            color: exportController.remainingSeconds < 120 ? "#8B2E2E" : "#2E6B3A"
                         }
+
                         Text {
                             text: "Expires in " + exportController.remainingText
-                            font.pixelSize: 13
+                            font.pixelSize: 14
                             font.weight: Font.DemiBold
-                            color: exportController.remainingSeconds < 120
-                                   ? "#ffb8b8" : "#b8d8b8"
+                            color: exportController.remainingSeconds < 120 ? "#8B2E2E" : "#2E6B3A"
                         }
                     }
-                }
-
-                // URL hint
-                Text {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 260
-                    text: exportController.serverUrl
-                    font.pixelSize: 11
-                    color: "#6a6460"
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideMiddle
                 }
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: exportController.mode === "export"
-                          ? "Mirror is also showing this QR code."
-                          : "Mirror is showing the QR code. Scan from the mirror or here."
-                    font.pixelSize: 12
-                    color: "#7a746e"
+                          ? "The mirror is also showing this QR code."
+                          : "The QR code is also shown on the mirror."
+                    font.pixelSize: 13
+                    color: "#A09890"
                 }
             }
 
-            // Loading state
+            // Loading
             Text {
                 anchors.centerIn: parent
                 visible: exportController.errorMessage.length === 0
                          && exportController.qrImageUrl.length === 0
-                text: "Generating QR…"
-                font.pixelSize: 14
-                color: "#6a6460"
+                text: "Generating…"
+                font.pixelSize: 15
+                color: "#A09890"
             }
         }
 
-        // ── Actions ──────────────────────────────────────────────────
-        RowLayout {
+        // ── Done ─────────────────────────────────────────────────────
+        AppButton {
             Layout.fillWidth: true
-            spacing: 12
-
-            AppButton {
-                Layout.fillWidth: true
-                text: "Done"
-                onClicked: exportController.close()
-            }
+            implicitHeight: 56
+            text: "Done"
+            onClicked: exportController.close()
         }
     }
 }

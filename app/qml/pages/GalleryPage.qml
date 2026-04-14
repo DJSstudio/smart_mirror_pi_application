@@ -1,4 +1,4 @@
-// Gallery page — horizontal scroll of video cards with selection for compare.
+// My Looks — gallery of recorded videos with compare/export actions.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -9,12 +9,12 @@ Item {
 
     ColumnLayout {
         anchors { fill: parent; margins: 24 }
-        spacing: 16
+        spacing: 14
 
         // ── Header ──────────────────────────────────────────────────
         PageHeader {
             Layout.fillWidth: true
-            title: "Gallery"
+            title: "My Looks"
             subtitle: galleryController.videoCount + " look"
                       + (galleryController.videoCount === 1 ? "" : "s")
                       + (galleryController.selectedCount > 0
@@ -23,142 +23,142 @@ Item {
             onBackClicked: appController.showDashboard()
         }
 
-        // ── Contextual action toolbar ────────────────────────────────
-        // Visible only while videos are selected; shows relevant actions.
-        RowLayout {
+        // ── Selection action bar ──────────────────────────────────────
+        Rectangle {
             Layout.fillWidth: true
-            spacing: 10
             visible: galleryController.selectedCount > 0
+            height: 60
+            radius: 14
+            color: "#1C1917"
 
-            AppButton {
-                text: "Play"
-                enabled: galleryController.canPlay
-                onClicked: galleryController.playSelected()
-            }
+            RowLayout {
+                anchors { fill: parent; leftMargin: 16; rightMargin: 16 }
+                spacing: 10
 
-            AppButton {
-                text: "Compare"
-                enabled: galleryController.canCompare
-                onClicked: galleryController.compareSelected()
-            }
+                AppButton {
+                    text: "Play"
+                    variant: "ghost"
+                    enabled: galleryController.canPlay
+                    implicitHeight: 40
+                    contentItem: Text {
+                        text: parent.text; font.pixelSize: 14; font.weight: Font.DemiBold
+                        color: parent.enabled ? "#FFFFFF" : "#6B635C"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: galleryController.playSelected()
+                }
 
-            AppButton {
-                text: "Live Compare"
-                enabled: galleryController.canLiveCompare
-                onClicked: galleryController.liveCompareSelected()
-            }
+                AppButton {
+                    text: "Compare"
+                    variant: "ghost"
+                    enabled: galleryController.canCompare
+                    implicitHeight: 40
+                    contentItem: Text {
+                        text: parent.text; font.pixelSize: 14; font.weight: Font.DemiBold
+                        color: parent.enabled ? "#FFFFFF" : "#6B635C"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: galleryController.compareSelected()
+                }
 
-            AppButton {
-                text: "Export"
-                enabled: galleryController.canPlay
-                onClicked: exportController.exportVideo(galleryController.selectedIds[0])
-            }
+                AppButton {
+                    text: "Live Compare"
+                    variant: "ghost"
+                    enabled: galleryController.canLiveCompare
+                    implicitHeight: 40
+                    contentItem: Text {
+                        text: parent.text; font.pixelSize: 14; font.weight: Font.DemiBold
+                        color: parent.enabled ? "#FFFFFF" : "#6B635C"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: galleryController.liveCompareSelected()
+                }
 
-            AppButton {
-                text: "Delete"
-                variant: "danger"
-                enabled: galleryController.canPlay
-                onClicked: deleteConfirm.open()
-            }
+                AppButton {
+                    text: "Share"
+                    variant: "ghost"
+                    enabled: galleryController.canPlay
+                    implicitHeight: 40
+                    contentItem: Text {
+                        text: parent.text; font.pixelSize: 14; font.weight: Font.DemiBold
+                        color: parent.enabled ? "#C4956A" : "#6B635C"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: exportController.exportVideo(galleryController.selectedIds[0])
+                }
 
-            Item { Layout.fillWidth: true }
+                AppButton {
+                    text: "Delete"
+                    variant: "ghost"
+                    enabled: galleryController.canPlay
+                    implicitHeight: 40
+                    contentItem: Text {
+                        text: parent.text; font.pixelSize: 14; font.weight: Font.DemiBold
+                        color: parent.enabled ? "#FF8080" : "#6B635C"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: deleteConfirm.open()
+                }
 
-            AppButton {
-                text: "Clear"
-                variant: "secondary"
-                onClicked: galleryController.clearSelection()
+                Item { Layout.fillWidth: true }
+
+                // Clear selection
+                Rectangle {
+                    width: 32; height: 32; radius: 999
+                    color: "#2E2A27"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "✕"
+                        font.pixelSize: 13
+                        color: "#9A9088"
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: galleryController.clearSelection()
+                    }
+                }
             }
         }
 
-        // ── Delete confirmation popup ─────────────────────────────────
-        Popup {
-            id: deleteConfirm
-            anchors.centerIn: parent
-            modal: true
-            focus: true
-            padding: 24
-
-            background: Rectangle {
-                color: "#1e1a17"
-                radius: 16
-                border.width: 1
-                border.color: "#3a3430"
-            }
-
-            contentItem: ColumnLayout {
-                spacing: 16
-                width: 300
-
-                Text {
-                    text: "Delete this video?"
-                    font.pixelSize: 16
-                    font.weight: Font.DemiBold
-                    color: "#f0ebe5"
-                }
-
-                Text {
-                    text: "This cannot be undone."
-                    font.pixelSize: 13
-                    color: "#a09590"
-                    Layout.fillWidth: true
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 10
-
-                    AppButton {
-                        Layout.fillWidth: true
-                        text: "Cancel"
-                        variant: "secondary"
-                        onClicked: deleteConfirm.close()
-                    }
-
-                    AppButton {
-                        Layout.fillWidth: true
-                        text: "Delete"
-                        variant: "danger"
-                        onClicked: {
-                            deleteConfirm.close()
-                            galleryController.deleteVideo(galleryController.selectedIds[0])
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Selection hint ───────────────────────────────────────────
+        // ── Selection hint text ───────────────────────────────────────
         Text {
             visible: galleryController.videoCount > 0 && galleryController.selectedCount === 0
             text: "Tap a card to play  ·  Tap ○ to select for compare"
             font.pixelSize: 12
-            color: "#a09590"
+            color: "#A09890"
         }
 
-        // ── Selection action hint ────────────────────────────────────
         Text {
             visible: galleryController.selectedCount === 1
-            text: "1 selected — tap ○ on a second card to Compare, or choose an action above"
+            text: "Select one more look to compare side-by-side"
             font.pixelSize: 12
-            color: "#a09590"
+            color: "#C4956A"
         }
 
         Text {
             visible: galleryController.selectedCount === 2
-            text: "2 selected — ready to Compare"
+            text: "Ready to compare — tap Compare above"
             font.pixelSize: 12
-            color: "#a09590"
+            color: "#C4956A"
         }
 
         // ── Video grid ───────────────────────────────────────────────
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: galleryFlow.implicitWidth
+            contentWidth: _flow.implicitWidth
             clip: true
 
             Flow {
-                id: galleryFlow
+                id: _flow
                 width: root.width - 48
                 spacing: 14
 
@@ -166,52 +166,59 @@ Item {
                     model: galleryController.videos
 
                     VideoCard {
-                        videoId: modelData.id
-                        title: modelData.title
+                        videoId:      modelData.id
+                        title:        modelData.title
                         durationLabel: modelData.durationLabel
                         thumbnailUrl: modelData.thumbnailUrl
                         createdLabel: modelData.createdLabel
-                        selected: galleryController.selectedIds.indexOf(modelData.id) >= 0
+                        selected:     galleryController.selectedIds.indexOf(modelData.id) >= 0
                         selectionIndex: galleryController.selectedIds.indexOf(modelData.id) + 1
 
-                        onTapped: galleryController.playVideo(modelData.id)
+                        onTapped:         galleryController.playVideo(modelData.id)
                         onCheckboxTapped: galleryController.toggleSelect(modelData.id)
                     }
                 }
             }
         }
 
-        // ── Empty state ──────────────────────────────────────────────
+        // ── Empty state ───────────────────────────────────────────────
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: galleryController.videoCount === 0
-            spacing: 12
+            spacing: 14
 
             Item { Layout.fillHeight: true }
 
-            Text {
+            Rectangle {
                 Layout.alignment: Qt.AlignHCenter
-                text: "▦"
-                font.pixelSize: 48
-                color: "#c4b8ac"
+                width: 80; height: 80; radius: 999
+                color: "#F0EBE5"
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "▦"
+                    font.pixelSize: 36
+                    color: "#C4BCBA"
+                }
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "No looks recorded yet"
-                font.pixelSize: 18
-                color: "#8c8681"
+                text: "No looks yet"
+                font.pixelSize: 20
+                font.weight: Font.DemiBold
+                color: "#1C1917"
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Record your first look to see it here."
-                font.pixelSize: 13
-                color: "#a09590"
+                text: "Record your first look and it will appear here."
+                font.pixelSize: 14
+                color: "#6B6560"
             }
 
-            Item { Layout.fillHeight: true }
+            Item { Layout.preferredHeight: 8 }
 
             AppButton {
                 Layout.alignment: Qt.AlignHCenter
@@ -219,8 +226,63 @@ Item {
                 onClicked: appController.showRecording()
             }
 
-            Item { Layout.preferredHeight: 16 }
+            Item { Layout.fillHeight: true }
+        }
+    }
+
+    // ── Delete confirmation ───────────────────────────────────────────
+    Popup {
+        id: deleteConfirm
+        anchors.centerIn: parent
+        modal: true; focus: true
+        padding: 28
+
+        background: Rectangle {
+            color: "#FFFFFF"
+            radius: 20
+            border.width: 1
+            border.color: "#E8E2DC"
         }
 
+        contentItem: ColumnLayout {
+            spacing: 16
+            width: 320
+
+            Text {
+                text: "Delete this look?"
+                font.pixelSize: 18
+                font.weight: Font.Bold
+                color: "#1C1917"
+            }
+
+            Text {
+                text: "This cannot be undone."
+                font.pixelSize: 14
+                color: "#6B6560"
+                Layout.fillWidth: true
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                AppButton {
+                    Layout.fillWidth: true
+                    text: "Cancel"
+                    variant: "secondary"
+                    onClicked: deleteConfirm.close()
+                }
+
+                AppButton {
+                    Layout.fillWidth: true
+                    text: "Delete"
+                    variant: "danger"
+                    onClicked: {
+                        deleteConfirm.close()
+                        galleryController.deleteVideo(galleryController.selectedIds[0])
+                    }
+                }
+            }
+        }
     }
 }

@@ -1,5 +1,4 @@
-// Login page — shown on the control window while waiting for a phone to scan
-// the QR code displayed on the mirror.
+// Login page — shown while waiting for a phone to scan the mirror QR code.
 import QtQuick
 import QtQuick.Layouts
 import "../components"
@@ -7,61 +6,63 @@ import "../components"
 Item {
     id: root
 
+    // Warm off-white background
+    Rectangle { anchors.fill: parent; color: "#F7F5F2" }
+
     ColumnLayout {
-        anchors { fill: parent; margins: 40 }
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.7, 480)
         spacing: 0
 
-        Item { Layout.fillHeight: true }
-
-        // ── Title ────────────────────────────────────────────────────
+        // ── Brand ────────────────────────────────────────────────────
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: "Smart Mirror"
             font.family: "Noto Serif, Georgia, serif"
-            font.pixelSize: 32
+            font.pixelSize: 36
             font.weight: Font.Medium
-            color: "#3c3530"
+            color: "#1C1917"
         }
 
         Item { Layout.preferredHeight: 8 }
 
         Text {
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 360
-            text: "Scan the QR code on the mirror with your phone to start or resume your session"
-            font.pixelSize: 14
-            color: "#8c8681"
+            Layout.fillWidth: true
+            text: "Scan the QR code on the mirror with your phone\nto start or resume your session"
+            font.pixelSize: 15
+            color: "#6B6560"
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
         }
 
-        Item { Layout.preferredHeight: 32 }
+        Item { Layout.preferredHeight: 40 }
 
-        // ── QR preview (same code as mirror, for convenience) ────────
+        // ── QR code card ─────────────────────────────────────────────
         Rectangle {
             Layout.alignment: Qt.AlignHCenter
-            width: 180; height: 180
-            radius: 16
-            color: loginController.qrImageUrl.length > 0 ? "white" : "#ede5de"
+            width: 240; height: 240
+            radius: 20
+            color: loginController.qrImageUrl.length > 0 ? "#FFFFFF" : "#F0EBE5"
             border.width: 1
-            border.color: "#d6cdc5"
+            border.color: "#E8E2DC"
 
             Image {
                 visible: loginController.qrImageUrl.length > 0
-                anchors { fill: parent; margins: 12 }
+                anchors { fill: parent; margins: 14 }
                 source: loginController.qrImageUrl
                 fillMode: Image.PreserveAspectFit
                 smooth: false
                 cache: false
             }
 
-            // Pulsing dot while QR is generating (no QtQuick.Controls needed)
+            // Loading pulse
             Rectangle {
                 visible: loginController.qrImageUrl.length === 0
                          && loginController.errorMessage.length === 0
                 anchors.centerIn: parent
-                width: 20; height: 20; radius: 10
-                color: "#b0a8a0"
+                width: 16; height: 16; radius: 8
+                color: "#C4956A"
 
                 SequentialAnimation on opacity {
                     running: parent.visible
@@ -72,28 +73,17 @@ Item {
             }
         }
 
-        Item { Layout.preferredHeight: 16 }
+        Item { Layout.preferredHeight: 32 }
 
-        // ── Server URL hint ──────────────────────────────────────────
-        Text {
-            Layout.alignment: Qt.AlignHCenter
-            text: loginController.serverUrl
-            font.pixelSize: 11
-            color: "#a09590"
-            horizontalAlignment: Text.AlignHCenter
-        }
-
-        Item { Layout.preferredHeight: 24 }
-
-        // ── Waiting indicator ────────────────────────────────────────
+        // ── Waiting indicator ─────────────────────────────────────────
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
-            spacing: 8
+            spacing: 10
             visible: loginController.isPending && loginController.errorMessage.length === 0
 
             Rectangle {
                 width: 8; height: 8; radius: 4
-                color: "#7a6a5a"
+                color: "#C4956A"
 
                 SequentialAnimation on opacity {
                     running: loginController.isPending
@@ -105,23 +95,26 @@ Item {
 
             Text {
                 text: "Waiting for device scan…"
-                font.pixelSize: 13
-                color: "#9d9590"
+                font.pixelSize: 14
+                color: "#6B6560"
             }
         }
 
-        // ── Error state ──────────────────────────────────────────────
-        Text {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 320
+        // ── Error ─────────────────────────────────────────────────────
+        Rectangle {
+            Layout.fillWidth: true
             visible: loginController.errorMessage.length > 0
-            text: "⚠  " + loginController.errorMessage
-            font.pixelSize: 12
-            color: "#c05050"
-            wrapMode: Text.WordWrap
-            horizontalAlignment: Text.AlignHCenter
-        }
+            height: 44; radius: 12
+            color: "#8B2E2E"
 
-        Item { Layout.fillHeight: true }
+            Text {
+                anchors { fill: parent; leftMargin: 16; rightMargin: 16 }
+                verticalAlignment: Text.AlignVCenter
+                text: "⚠  " + loginController.errorMessage
+                font.pixelSize: 13
+                color: "#FFFFFF"
+                elide: Text.ElideRight
+            }
+        }
     }
 }

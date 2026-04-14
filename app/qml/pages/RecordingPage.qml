@@ -14,39 +14,38 @@ Item {
         // ── Header ──────────────────────────────────────────────────
         PageHeader {
             Layout.fillWidth: true
-            title: recordingController.hasReview
-                    ? "Review Your Look"
-                    : (recordingController.isRecording ? "Recording…" : "Record a Look")
+            title: recordingController.hasReview   ? "Review Your Look"
+                 : recordingController.isRecording  ? "Recording…"
+                 :                                    "Record a Look"
             subtitle: recordingController.hasReview
-                    ? "Watch the clip, then save it to your gallery or discard it."
+                    ? "Watch the clip, then save it or discard it."
                     : (recordingController.isRecording
-                        ? "The mirror is showing the live preview. Press Stop when done."
-                        : "When you press Start, a 5-second countdown will begin.")
-            showBack: !recordingController.isRecording && !recordingController.hasReview && recordingController.countdown === 0
+                        ? "Live preview is on the mirror. Press Stop when done."
+                        : "Press Start — a 5-second countdown will begin.")
+            showBack: !recordingController.isRecording
+                      && !recordingController.hasReview
+                      && recordingController.countdown === 0
             onBackClicked: appController.showDashboard()
         }
 
-        // ── Preview / review surface ────────────────────────────────
+        // ── Preview / review surface ─────────────────────────────────
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: 20
-            color: "#0d0b09"
+            color: "#0D0B09"
             border.width: 1
-            border.color: "#1c1814"
+            border.color: "#1C1917"
             clip: true
 
-            // Live preview (UDP stream during recording / countdown)
+            // Live preview
             MediaPlayer {
                 id: livePlayer
                 source: recordingController.previewSource
                 loops: MediaPlayer.Infinite
                 videoOutput: liveOutput
                 audioOutput: AudioOutput { muted: true }
-                onSourceChanged: {
-                    if (source.toString().length > 0) play()
-                    else stop()
-                }
+                onSourceChanged: { if (source.toString().length > 0) play(); else stop() }
             }
 
             VideoOutput {
@@ -56,18 +55,14 @@ Item {
                 visible: recordingController.previewSource.length > 0
             }
 
-            // Post-stop review player
+            // Review player
             MediaPlayer {
                 id: reviewPlayer
                 source: recordingController.reviewSource
                 loops: MediaPlayer.Infinite
                 videoOutput: reviewOutput
                 audioOutput: AudioOutput { muted: false; volume: 0.85 }
-
-                onSourceChanged: {
-                    if (source.toString().length > 0) play()
-                    else stop()
-                }
+                onSourceChanged: { if (source.toString().length > 0) play(); else stop() }
             }
 
             VideoOutput {
@@ -90,49 +85,54 @@ Item {
                          && !recordingController.hasReview
                          && recordingController.countdown === 0
                          && recordingController.previewSource.length === 0
-                spacing: 12
+                spacing: 14
 
-                Text {
+                Rectangle {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "⏺"
-                    font.pixelSize: 48
-                    color: "#5a504a"
+                    width: 72; height: 72; radius: 999
+                    color: "#1C1917"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "⏺"
+                        font.pixelSize: 30
+                        color: "#C4956A"
+                    }
                 }
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: "Camera preview will appear here"
-                    font.pixelSize: 15
-                    color: "#7a746e"
+                    font.pixelSize: 16
+                    color: "#6B635C"
                 }
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: recordingController.backendLabel.length > 0
-                          ? "Backend: " + recordingController.backendLabel
+                          ? recordingController.backendLabel
                           : "No camera detected"
                     font.pixelSize: 12
-                    color: "#9d9590"
+                    color: "#4A4540"
                 }
             }
 
-            // Recording indicator
+            // REC badge
             Rectangle {
                 visible: recordingController.isRecording
-                anchors { top: parent.top; right: parent.right; margins: 14 }
+                anchors { top: parent.top; right: parent.right; margins: 16 }
                 radius: 999
-                width: recRow.implicitWidth + 14
-                height: 28
-                color: "#aa8c2222"
+                width: _recRow.implicitWidth + 16; height: 32
+                color: "#CC8B2E2E"
 
                 RowLayout {
-                    id: recRow
+                    id: _recRow
                     anchors.centerIn: parent
-                    spacing: 6
+                    spacing: 8
 
                     Rectangle {
                         width: 10; height: 10; radius: 999
-                        color: "#e05050"
+                        color: "#FF6B6B"
 
                         SequentialAnimation on opacity {
                             running: recordingController.isRecording
@@ -146,69 +146,73 @@ Item {
                         text: "REC  " + recordingController.elapsedText
                         font.pixelSize: 13
                         font.weight: Font.DemiBold
-                        color: "#fff0ee"
+                        color: "#FFFFFF"
                     }
                 }
             }
         }
 
-        // ── Error banner ────────────────────────────────────────────
+        // ── Error banner ─────────────────────────────────────────────
         Rectangle {
             Layout.fillWidth: true
             visible: recordingController.errorMessage.length > 0
-            height: 38
-            radius: 10
-            color: "#7a2c2c"
+            height: 44; radius: 12
+            color: "#8B2E2E"
 
             Text {
-                anchors { fill: parent; leftMargin: 14; rightMargin: 14 }
+                anchors { fill: parent; leftMargin: 16; rightMargin: 16 }
                 verticalAlignment: Text.AlignVCenter
                 text: "⚠  " + recordingController.errorMessage
-                color: "#fff0ee"
+                color: "#FFFFFF"
                 font.pixelSize: 13
                 elide: Text.ElideRight
             }
         }
 
-        // ── Action buttons ──────────────────────────────────────────
+        // ── Action buttons ───────────────────────────────────────────
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
 
-            // Idle state
+            // Idle → Start
             AppButton {
                 visible: !recordingController.isRecording
                          && !recordingController.hasReview
                          && recordingController.countdown === 0
                 Layout.fillWidth: true
+                implicitHeight: 60
                 text: "Start Recording"
                 enabled: !recordingController.isBusy
                 onClicked: recordingController.beginRecording()
             }
 
-            // Recording active
+            // Active → Stop
             AppButton {
                 visible: recordingController.isRecording
                 Layout.fillWidth: true
+                implicitHeight: 60
                 text: "Stop Recording"
                 variant: "danger"
                 onClicked: recordingController.stopRecording()
             }
 
-            // Review state
+            // Review → Save
             AppButton {
                 visible: recordingController.hasReview
                 Layout.fillWidth: true
+                implicitHeight: 60
                 text: "Save Look"
                 enabled: !recordingController.isBusy
                 onClicked: recordingController.saveRecording()
             }
 
+            // Review / recording → Discard
             AppButton {
                 visible: recordingController.hasReview
                          || recordingController.isRecording
                          || recordingController.countdown > 0
-                Layout.fillWidth: true
+                implicitHeight: 60
+                implicitWidth: 160
                 text: "Discard"
                 variant: "secondary"
                 enabled: !recordingController.isBusy

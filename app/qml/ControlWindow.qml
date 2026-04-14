@@ -1,5 +1,4 @@
 // Control Window — lives on Display 1.
-// All user interaction happens here. Never touches the mirror directly.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -10,68 +9,82 @@ ApplicationWindow {
     id: controlWindow
     objectName: "controlWindow"
 
-    // Hidden initially; screen_manager will call showFullScreen()
     visible: false
     width: 1280
     height: 800
     title: "Smart Mirror Pi"
     flags: Qt.Window | Qt.FramelessWindowHint
-    color: "#f2ece7"
+    color: "#F7F5F2"
 
-    // ── Global keyboard shortcuts ─────────────────────────────────────
+    // ── Global shortcut ───────────────────────────────────────────────
     Shortcut { sequence: "Ctrl+Q"; onActivated: Qt.quit() }
 
-    // ── Navigation locked while recording ────────────────────────────
+    // ── Nav locked while recording ────────────────────────────────────
     readonly property bool navLocked:
         recordingController ? (recordingController.isRecording
             || recordingController.hasReview
             || recordingController.countdown > 0) : false
 
-    // ── Side navigation strip — defined first so content can anchor to it ──
+    // ── Side navigation strip ─────────────────────────────────────────
     Rectangle {
         id: navStrip
         anchors { left: parent.left; top: parent.top; bottom: statusBar.top }
-        width: appController && appController.currentPage === "login" ? 0 : 72
+        width: appController && appController.currentPage === "login" ? 0 : 88
         visible: width > 0
-        color: "#e8e0d9"
+        color: "#1C1917"
         z: 2
 
-        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+        Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutQuad } }
 
         ColumnLayout {
-            anchors { fill: parent; topMargin: 16; bottomMargin: 16 }
-            spacing: 6
+            anchors { fill: parent; topMargin: 20; bottomMargin: 16 }
+            spacing: 2
 
             Repeater {
                 model: [
-                    { icon: "⌂", page: "dashboard",  tip: "Home" },
-                    { icon: "⏺", page: "recording",  tip: "Record" },
-                    { icon: "▦", page: "gallery",    tip: "Gallery" },
-                    { icon: "⚙", page: "settings",   tip: "Settings" },
+                    { icon: "⌂",  page: "dashboard", label: "Home"     },
+                    { icon: "⏺",  page: "recording",  label: "Record"   },
+                    { icon: "▦",  page: "gallery",    label: "Looks"    },
+                    { icon: "⚙",  page: "settings",   label: "Settings" },
                 ]
 
-                Rectangle {
-                    width: 56; height: 56; radius: 14
-                    Layout.alignment: Qt.AlignHCenter
-                    color: appController && appController.currentPage === modelData.page
-                           ? "#d0c8c0" : "transparent"
-                    border.width: appController && appController.currentPage === modelData.page ? 1 : 0
-                    border.color: "#c4b8ac"
+                // Nav item: icon + label stacked
+                Item {
+                    Layout.fillWidth: true
+                    height: 72
 
-                    Text {
-                        anchors.centerIn: parent
-                        text: modelData.icon
-                        font.pixelSize: 24
-                        color: appController && appController.currentPage === modelData.page
-                               ? "#3c3530" : "#9d9590"
+                    readonly property bool isActive:
+                        appController && appController.currentPage === modelData.page
+
+                    Rectangle {
+                        anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
+                        radius: 12
+                        color: parent.isActive ? "#2E2A27" : (navItemMa.containsMouse ? "#252220" : "transparent")
+                        Behavior on color { ColorAnimation { duration: 100 } }
                     }
 
-                    ToolTip.visible: navMa.containsMouse
-                    ToolTip.text: modelData.tip
-                    ToolTip.delay: 600
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 4
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: modelData.icon
+                            font.pixelSize: 22
+                            color: parent.parent.isActive ? "#FFFFFF" : "#6B635C"
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: modelData.label
+                            font.pixelSize: 10
+                            font.weight: Font.Medium
+                            color: parent.parent.isActive ? "#C4956A" : "#4E4842"
+                        }
+                    }
 
                     MouseArea {
-                        id: navMa
+                        id: navItemMa
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
@@ -85,7 +98,7 @@ ApplicationWindow {
                                     if (galleryController) galleryController.refresh()
                                     appController.showGallery()
                                     break
-                                case "settings":  appController.showSettings(); break
+                                case "settings": appController.showSettings(); break
                             }
                         }
                     }
@@ -95,18 +108,31 @@ ApplicationWindow {
             Item { Layout.fillHeight: true }
 
             // Mirror status dot
-            Rectangle {
-                width: 12; height: 12; radius: 999
+            ColumnLayout {
                 Layout.alignment: Qt.AlignHCenter
-                color: mirrorDisplay && mirrorDisplay.mode !== "idle" ? "#5a9a6a" : "#c4b8ac"
-                ToolTip.visible: dotMa.containsMouse
-                ToolTip.text: "Mirror: " + (mirrorDisplay ? mirrorDisplay.mode : "—")
-                MouseArea { id: dotMa; anchors.fill: parent; hoverEnabled: true }
+                Layout.bottomMargin: 4
+                spacing: 4
+
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    width: 8; height: 8; radius: 999
+                    color: mirrorDisplay && mirrorDisplay.mode !== "idle" ? "#C4956A" : "#3A3430"
+                    ToolTip.visible: _dotMa.containsMouse
+                    ToolTip.text: "Mirror: " + (mirrorDisplay ? mirrorDisplay.mode : "—")
+                    MouseArea { id: _dotMa; anchors.fill: parent; hoverEnabled: true }
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Mirror"
+                    font.pixelSize: 9
+                    color: "#3A3430"
+                }
             }
         }
     }
 
-    // ── Status / error bar ───────────────────────────────────────────
+    // ── Status bar ────────────────────────────────────────────────────
     StatusBar {
         id: statusBar
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
@@ -114,7 +140,7 @@ ApplicationWindow {
         errorText:  appController ? appController.errorMessage  : ""
     }
 
-    // ── Page content area (right of nav strip, above status bar) ─────
+    // ── Page content area ─────────────────────────────────────────────
     Item {
         id: content
         anchors {
@@ -124,17 +150,11 @@ ApplicationWindow {
             bottom: statusBar.top
         }
 
-        // Warm gradient background
         Rectangle {
             anchors.fill: parent
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0.0; color: "#f4ede8" }
-                GradientStop { position: 1.0; color: "#ece5df" }
-            }
+            color: "#F7F5F2"
         }
 
-        // Page loader
         Loader {
             id: pageLoader
             anchors.fill: parent
@@ -157,7 +177,7 @@ ApplicationWindow {
 
             onStatusChanged: {
                 if (status === Loader.Error)
-                    console.error("PageLoader failed to load:", source)
+                    console.error("PageLoader failed:", source)
             }
         }
     }
