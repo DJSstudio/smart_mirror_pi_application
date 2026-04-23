@@ -130,6 +130,55 @@ ApplicationWindow {
                 }
             }
         }
+        // ── Idle auto-logout warning overlay (mirror side) ──────────
+        // Mirrors the ControlWindow overlay so the person in front of the
+        // mirror can see the countdown too.  Instructs them to interact with
+        // the controller screen (not the mirror itself).
+        Rectangle {
+            id: mirrorIdleOverlay
+            anchors.fill: parent
+            z: 100
+            visible: idleService && idleService.warningVisible
+            color: "#E6000000"
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 32
+
+                // Countdown ring
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    width: 160; height: 160; radius: 80
+                    color: "transparent"
+                    border.width: 5
+                    border.color: "#C4956A"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: idleService ? idleService.secondsLeft : ""
+                        font.pixelSize: 72
+                        font.weight: Font.Bold
+                        color: "#FFFFFF"
+                    }
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Still there?"
+                    font.pixelSize: 40
+                    font.weight: Font.Bold
+                    color: "#FFFFFF"
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Tap anywhere on the controller screen to stay logged in"
+                    font.pixelSize: 22
+                    color: "#B0A89E"
+                    horizontalAlignment: Text.AlignHCenter
+                }
+            }
+        }
     }
 
     // ── Live preview (recording mode) ────────────────────────────────

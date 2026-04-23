@@ -19,6 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
+from app.database.repositories import FootfallRepository
 from app.models.entities import SessionRecord
 from app.services.gallery_service import GalleryService
 from app.services.mirror_display_service import MirrorDisplayService
@@ -41,6 +42,7 @@ class LoginController(QObject):
         share_server: ShareServer,
         session_service: SessionService,
         gallery_service: GalleryService,
+        footfall_repo: FootfallRepository,
         session_ctrl,        # SessionController — refreshed after login
         gallery_ctrl,        # GalleryController — refreshed after login
         mirror_display: MirrorDisplayService,
@@ -51,6 +53,7 @@ class LoginController(QObject):
         self._server = share_server
         self._session_svc = session_service
         self._gallery_svc = gallery_service
+        self._footfall = footfall_repo
         self._session_ctrl = session_ctrl
         self._gallery_ctrl = gallery_ctrl
         self._mirror = mirror_display
@@ -98,9 +101,26 @@ class LoginController(QObject):
 
     @Slot()
     def startLogin(self) -> None:
-        """Generate a fresh QR login token and begin polling."""
+        """Called from QML 'Log Out' button — manual logout then show QR."""
+        self._do_logout_and_show_qr(reason="manual")
+
+    def autoLogout(self) -> None:
+        """Called by the idle timer — auto-idle logout then show QR."""
+        self._do_logout_and_show_qr(reason="auto_idle")
+
+    def _do_logout_and_show_qr(self, reason: str) -> None:
+        """Record the logout of any active session, then generate a fresh QR."""
         self._stop_poll()
         self._error = ""
+
+        # Record logout of the currently active session (if any).
+        active = self._session_svc.get_active_session()
+        if active:
+            self._footfall.record_logout(active.id, reason=reason)
+            LOGGER.info(
+                "Footfall: logout session=%s reason=%s", active.id[:8], reason
+            )
+
         try:
             ip = get_local_ip()
             port = self._server.port
@@ -190,6 +210,12 @@ class LoginController(QObject):
                     if was_resumed
                     else f"Session started — {session.name}"
                 )
+
+            # Record the login event — also closes any open arc for another session.
+            self._footfall.record_login(session)
+            LOGGER.info(
+                "Footfall: login session=%s device=%s", session.id[:8], device_id[:8]
+            )
 
             self._session_ctrl.refresh()
             self._gallery_ctrl.refresh()

@@ -19,7 +19,7 @@ from app.controllers.recording_controller import RecordingController
 from app.controllers.session_controller import SessionController
 from app.controllers.settings_controller import SettingsController
 from app.database.connection import DatabaseManager
-from app.database.repositories import SessionRepository, VideoRepository
+from app.database.repositories import FootfallRepository, SessionRepository, VideoRepository
 from app.services.camera_service import CameraService
 from app.services.gallery_service import GalleryService
 from app.services.mirror_display_service import MirrorDisplayService
@@ -100,6 +100,7 @@ def main() -> int:
     db.initialize()
     session_repo = SessionRepository(db)
     video_repo = VideoRepository(db)
+    footfall_repo = FootfallRepository(db)
 
     # ----------------------------------------------------------------
     # Services
@@ -159,6 +160,7 @@ def main() -> int:
         share_server=share_server,
         session_service=session_service,
         gallery_service=gallery_service,
+        footfall_repo=footfall_repo,
         session_ctrl=session_ctrl,
         gallery_ctrl=gallery_ctrl,
         mirror_display=mirror_display,
@@ -191,7 +193,7 @@ def main() -> int:
         warning_ms=_idle_warning_ms,
     )
     idle_service.install(app)
-    idle_service.timedOut.connect(login_ctrl.startLogin)
+    idle_service.timedOut.connect(login_ctrl.autoLogout)
 
     # Pause on pages where auto-logout makes no sense:
     #   login     — already at the login screen, nothing to time out

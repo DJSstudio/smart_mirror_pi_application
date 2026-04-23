@@ -24,7 +24,9 @@
       "Bash(grep -n \"except:\\\\s*$\" /Users/sarthak/smart_mirror_pi/app -r --include=\"*.py\")",
       "Bash(grep -A 5 \"class RaspberryPiCameraAdapter\" /Users/sarthak/smart_mirror_pi/app/platform/*.py)",
       "Bash(grep -v \"^--$\")",
-      "Bash(venv/bin/python -m pytest tests/test_idle_service.py -v --tb=short)"
+      "Bash(venv/bin/python -m pytest tests/test_idle_service.py -v --tb=short)",
+      "Bash(python3 -c ':*)",
+      "Bash(python3 -m pytest tests/test_idle_service.py -v)"
     ]
   }
 }

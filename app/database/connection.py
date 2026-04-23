@@ -44,21 +44,41 @@ class DatabaseManager:
                 height           INTEGER
             );
 
+            -- Footfall analytics: one row per login arc (QR scan → logout).
+            -- Multiple rows per session_id are normal (repeat logins).
+            CREATE TABLE IF NOT EXISTS footfall (
+                id              TEXT PRIMARY KEY,
+                session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                session_name    TEXT NOT NULL DEFAULT '',
+                session_created TEXT NOT NULL,
+                login_at        TEXT NOT NULL,
+                logout_at       TEXT,
+                logout_reason   TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sessions_active
                 ON sessions(active);
 
             CREATE INDEX IF NOT EXISTS idx_videos_session_created
                 ON videos(session_id, created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_footfall_session
+                ON footfall(session_id, login_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_footfall_login_at
+                ON footfall(login_at DESC);
         """)
         self.connection.commit()
-        # Migration: add device_id to existing databases that predate this column.
-        try:
-            self.connection.execute(
-                "ALTER TABLE sessions ADD COLUMN device_id TEXT NOT NULL DEFAULT ''"
-            )
-            self.connection.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Migrations: add columns that may not exist in older databases.
+        _migrations = [
+            "ALTER TABLE sessions ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
+        ]
+        for stmt in _migrations:
+            try:
+                self.connection.execute(stmt)
+                self.connection.commit()
+            except sqlite3.OperationalError:
+                pass  # column / table already exists
 
     def close(self) -> None:
         if self._conn is not None:

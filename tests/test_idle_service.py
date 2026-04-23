@@ -161,6 +161,17 @@ class TestStartStop:
         assert idle.warningVisible is False
         assert idle.secondsLeft == 0
 
+    def test_stop_emits_warning_changed_when_overlay_was_visible(self, idle: IdleService) -> None:
+        """Regression: _stop_all() must emit warningChanged so QML hides the overlay."""
+        events: list = []
+        idle.warningChanged.connect(lambda: events.append(1))
+        idle.start()
+        idle._enter_warning()
+        count_before = len(events)
+        idle.stop()
+        # At least one more emission must have fired after stop() while warning was visible.
+        assert len(events) > count_before
+
 
 # ---------------------------------------------------------------------------
 # Reset

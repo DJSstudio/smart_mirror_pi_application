@@ -95,6 +95,60 @@ class VideoRecord:
 
 
 # ---------------------------------------------------------------------------
+# Footfall analytics
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class FootfallEvent:
+    """One login arc: QR-scan → logout for a specific session."""
+    id: str
+    session_id: str
+    session_name: str
+    session_created: str    # sessions.started_at
+    login_at: str           # when QR scan completed
+    logout_at: str | None   # when startLogin() was called next
+    logout_reason: str | None  # 'manual' | 'auto_idle' | 'session_switch' | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "sessionId": self.session_id,
+            "sessionName": self.session_name,
+            "sessionCreated": self.session_created,
+            "loginAt": self.login_at,
+            "logoutAt": self.logout_at or "",
+            "logoutReason": self.logout_reason or "",
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SessionFootfallSummary:
+    """Aggregated footfall stats per session — used in reports."""
+    session_id: str
+    session_name: str
+    session_created: str
+    login_count: int           # number of QR scans / login events
+    first_login_at: str | None
+    last_logout_at: str | None
+    last_logout_reason: str | None
+    video_count: int           # total recordings in this session
+    total_duration_seconds: float  # total recorded time across all videos
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "sessionId": self.session_id,
+            "sessionName": self.session_name,
+            "sessionCreated": self.session_created,
+            "loginCount": self.login_count,
+            "firstLoginAt": self.first_login_at or "",
+            "lastLogoutAt": self.last_logout_at or "",
+            "lastLogoutReason": self.last_logout_reason or "",
+            "videoCount": self.video_count,
+            "totalDurationSeconds": self.total_duration_seconds,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Transient camera / recording entities
 # ---------------------------------------------------------------------------
 

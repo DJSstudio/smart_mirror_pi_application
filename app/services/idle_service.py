@@ -181,6 +181,7 @@ class IdleService(QObject):
         if self._warn_visible:
             self._warn_visible = False
             self._seconds_left = 0
+            self.warningChanged.emit()   # notify QML to hide the overlay
 
 
 class _IdleEventFilter(QObject):
