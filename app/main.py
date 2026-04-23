@@ -182,6 +182,29 @@ def main() -> int:
     )
 
     # ----------------------------------------------------------------
+    # Idle auto-logout
+    # ----------------------------------------------------------------
+    _idle_timeout_ms = int(settings.get("idle_timeout_seconds", 300)) * 1_000
+    _idle_warning_ms = int(settings.get("idle_warning_seconds", 60)) * 1_000
+    idle_service = IdleService(
+        timeout_ms=_idle_timeout_ms,
+        warning_ms=_idle_warning_ms,
+    )
+    idle_service.install(app)
+    idle_service.timedOut.connect(login_ctrl.startLogin)
+
+    # Pause on pages where auto-logout makes no sense:
+    #   login     — already at the login screen, nothing to time out
+    #   recording — never interrupt an active capture mid-session
+    def _on_page_changed() -> None:
+        if app_ctrl.currentPage in ("login", "recording"):
+            idle_service.stop()
+        else:
+            idle_service.start()
+
+    app_ctrl.currentPageChanged.connect(_on_page_changed)
+
+    # ----------------------------------------------------------------
     # QML engine
     # ----------------------------------------------------------------
     engine = QQmlApplicationEngine()
@@ -212,29 +235,6 @@ def main() -> int:
         assignment.mirror_screen.name(),
         assignment.single_screen_mode,
     )
-
-    # ----------------------------------------------------------------
-    # Idle auto-logout
-    # ----------------------------------------------------------------
-    _idle_timeout_ms = int(settings.get("idle_timeout_seconds", 300)) * 1_000
-    _idle_warning_ms = int(settings.get("idle_warning_seconds", 60)) * 1_000
-    idle_service = IdleService(
-        timeout_ms=_idle_timeout_ms,
-        warning_ms=_idle_warning_ms,
-    )
-    idle_service.install(app)
-    idle_service.timedOut.connect(login_ctrl.startLogin)
-
-    # Pause on pages where auto-logout makes no sense:
-    #   login     — already at the login screen, nothing to time out
-    #   recording — never interrupt an active capture mid-session
-    def _on_page_changed() -> None:
-        if app_ctrl.currentPage in ("login", "recording"):
-            idle_service.stop()
-        else:
-            idle_service.start()
-
-    app_ctrl.currentPageChanged.connect(_on_page_changed)
 
     # Start QR login flow: show QR on mirror, login page on control window.
     # The login controller will navigate to dashboard after a successful scan.
