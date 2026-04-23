@@ -72,6 +72,8 @@ class DatabaseManager:
         # Migrations: add columns that may not exist in older databases.
         _migrations = [
             "ALTER TABLE sessions ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE sessions ADD COLUMN purged_at TEXT",
+            "ALTER TABLE footfall ADD COLUMN data_deleted_at TEXT",
         ]
         for stmt in _migrations:
             try:

@@ -273,7 +273,7 @@ class FootfallRepository:
     def list_session_summaries(self, limit: int = 100) -> list[SessionFootfallSummary]:
         """Return per-session aggregated footfall stats, newest session first.
 
-        Includes video_count and total_duration_seconds via JOIN on videos.
+        Includes video_count, total_duration_seconds, and purge status.
         """
         rows = self._db.connection.execute(
             """
@@ -292,9 +292,11 @@ class FootfallRepository:
                   ORDER BY f2.logout_at DESC
                   LIMIT 1)                              AS last_logout_reason,
                 COUNT(DISTINCT v.id)                    AS video_count,
-                COALESCE(SUM(v.duration_seconds), 0.0)  AS total_duration_seconds
+                COALESCE(SUM(v.duration_seconds), 0.0)  AS total_duration_seconds,
+                s.purged_at                             AS purged_at
             FROM footfall f
             LEFT JOIN videos v ON v.session_id = f.session_id
+            LEFT JOIN sessions s ON s.id = f.session_id
             GROUP BY f.session_id
             ORDER BY MAX(f.login_at) DESC
             LIMIT ?
@@ -324,7 +326,7 @@ class FootfallRepository:
         with path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=[
                 "id", "session_id", "session_name", "session_created",
-                "login_at", "logout_at", "logout_reason",
+                "login_at", "logout_at", "logout_reason", "data_deleted_at",
             ])
             writer.writeheader()
             for ev in events:
@@ -336,6 +338,7 @@ class FootfallRepository:
                     "login_at": ev.login_at,
                     "logout_at": ev.logout_at or "",
                     "logout_reason": ev.logout_reason or "",
+                    "data_deleted_at": ev.data_deleted_at or "",
                 })
         return path
 
@@ -380,6 +383,7 @@ def _row_to_footfall(row) -> FootfallEvent:
         login_at=str(row["login_at"]),
         logout_at=row["logout_at"],
         logout_reason=row["logout_reason"],
+        data_deleted_at=row["data_deleted_at"],
     )
 
 
@@ -394,4 +398,5 @@ def _row_to_summary(row) -> SessionFootfallSummary:
         last_logout_reason=row["last_logout_reason"],
         video_count=int(row["video_count"]),
         total_duration_seconds=float(row["total_duration_seconds"]),
+        purged_at=row["purged_at"],
     )

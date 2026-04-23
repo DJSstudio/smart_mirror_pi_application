@@ -31,6 +31,8 @@ _DEFAULTS: dict[str, Any] = {
     # Idle auto-logout
     "idle_timeout_seconds": 300,
     "idle_warning_seconds": 60,
+    # Auto-cleanup: delete video data for sessions inactive longer than this
+    "session_cleanup_hours": 1,
 }
 
 

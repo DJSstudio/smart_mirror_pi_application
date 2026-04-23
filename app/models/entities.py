@@ -108,6 +108,7 @@ class FootfallEvent:
     login_at: str           # when QR scan completed
     logout_at: str | None   # when startLogin() was called next
     logout_reason: str | None  # 'manual' | 'auto_idle' | 'session_switch' | None
+    data_deleted_at: str | None = None  # set when video data was auto-purged
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -118,6 +119,7 @@ class FootfallEvent:
             "loginAt": self.login_at,
             "logoutAt": self.logout_at or "",
             "logoutReason": self.logout_reason or "",
+            "dataDeletedAt": self.data_deleted_at or "",
         }
 
 
@@ -133,6 +135,7 @@ class SessionFootfallSummary:
     last_logout_reason: str | None
     video_count: int           # total recordings in this session
     total_duration_seconds: float  # total recorded time across all videos
+    purged_at: str | None = None   # set when video data was auto-deleted
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -145,6 +148,7 @@ class SessionFootfallSummary:
             "lastLogoutReason": self.last_logout_reason or "",
             "videoCount": self.video_count,
             "totalDurationSeconds": self.total_duration_seconds,
+            "purgedAt": self.purged_at or "",
         }
 
 

@@ -25,6 +25,7 @@ from app.services.gallery_service import GalleryService
 from app.services.mirror_display_service import MirrorDisplayService
 from app.services.playback_service import PlaybackService
 from app.services.recording_service import RecordingService
+from app.services.cleanup_service import CleanupService
 from app.services.idle_service import IdleService
 from app.services.screen_manager import ScreenManager
 from app.services.session_service import SessionService
@@ -120,6 +121,12 @@ def main() -> int:
         mirror_display=mirror_display,
         settings=settings,
     )
+    # Auto-cleanup: delete video data for sessions idle > threshold.
+    # Runs once at startup (before Qt) then every 30 min via QTimer below.
+    _cleanup_hours = float(settings.get("session_cleanup_hours", 1))
+    cleanup_service = CleanupService(db=db, video_repo=video_repo)
+    cleanup_service.run(older_than_hours=_cleanup_hours)
+
     _share_port = int(settings.get("share_server_port", 8765))
     share_server = ShareServer(port=_share_port)
     share_server.start()
@@ -133,6 +140,12 @@ def main() -> int:
     app.setOrganizationName("Smart Mirror")
 
     screen_manager = ScreenManager(app, settings)
+
+    # Periodic cleanup — runs every 30 minutes while the app is open.
+    _cleanup_timer = QTimer()
+    _cleanup_timer.setInterval(30 * 60 * 1_000)  # 30 minutes
+    _cleanup_timer.timeout.connect(lambda: cleanup_service.run(older_than_hours=_cleanup_hours))
+    _cleanup_timer.start()
 
     # ----------------------------------------------------------------
     # Controllers

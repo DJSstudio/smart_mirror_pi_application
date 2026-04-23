@@ -13,5 +13,6 @@
   "log_level": "INFO",
   "idle_timeout_seconds": 300,
   "idle_warning_seconds": 60,
-  "share_server_port": 8765
+  "share_server_port": 8765,
+  "session_cleanup_hours": 1
 }
