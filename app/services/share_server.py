@@ -940,32 +940,19 @@ function sendChoice(action){
 }
 
 function showChoice(sn,vc){
-  sub.textContent='You have a previous session on this mirror.';
+  sub.textContent='Someone else has been using this mirror since your last visit.';
   st.className='status';
   st.textContent='What would you like to do?';
 
   var rb=document.createElement('button');
   rb.className='btn btn-resume';
-  rb.textContent='Resume \u201c'+sn+'\u201d';
+  rb.textContent='Resume \u201c'+sn+'\u201d'+(vc>0?' \u2014 '+vc+' video'+(vc===1?'':'s'):'');
   rb.onclick=function(){sendChoice('resume');};
 
   var nb=document.createElement('button');
-  var baseLabel=vc>0
-    ?'Start Fresh \u2014 delete '+vc+' video'+(vc===1?'':'s')
-    :'Start a Fresh Session';
   nb.className='btn btn-fresh';
-  nb.textContent=baseLabel;
-  var confirmStep=false;
-  nb.onclick=function(){
-    if(!confirmStep){
-      confirmStep=true;
-      nb.textContent=vc>0
-        ?'\u26a0 Confirm: permanently delete '+vc+' video'+(vc===1?'':'s')+'?'
-        :'\u26a0 Confirm: start a fresh session?';
-    }else{
-      sendChoice('new');
-    }
-  };
+  nb.textContent='Start a Fresh Session';
+  nb.onclick=function(){sendChoice('new');};
 
   btns.innerHTML='';
   btns.appendChild(rb);

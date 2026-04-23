@@ -166,17 +166,26 @@ class LoginController(QObject):
         Returns *(has_previous, session_name, video_count)*.
 
         Only returns has_previous=True when the device has a *different*
-        previous session (not the currently active one), so re-scanning the
-        QR mid-session doesn't needlessly prompt for a choice.
+        session AND the current active session belongs to another known device
+        (i.e. someone else has been using the mirror in between).
+
+        Anonymous sessions created automatically by the app (e.g. on startup
+        or after a crash) are treated as unclaimed placeholders — the device
+        resumes silently without a choice dialog.
         """
         try:
             session = self._session_svc.get_device_session(device_id)
             if session is None:
                 return False, "", 0
-            # Same session is still active — just silently re-link, no choice.
             current = self._session_svc.get_active_session()
+            # Same session still active — just silently re-link.
             if current and session.id == current.id:
                 return False, "", 0
+            # Current session is anonymous (auto-created placeholder, e.g. after
+            # a crash/restart) — resume the device's session silently, no dialog.
+            if not current or not current.device_id:
+                return False, "", 0
+            # A *different* known device owns the active session — ask the user.
             count = self._gallery_svc.count_videos(session_id=session.id)
             return True, session.name, count
         except Exception:  # noqa: BLE001
@@ -228,15 +237,16 @@ class LoginController(QObject):
             self.changed.emit()
 
     def _new_session_for_device(self, device_id: str) -> SessionRecord:
-        """Delete all videos from the device's previous session and start fresh."""
+        """Close the device's previous session and start a brand-new one.
+
+        Videos from the old session are kept — they remain accessible in the
+        gallery.  The user can delete them manually if they want to.
+        """
         prev = self._session_svc.get_device_session(device_id)
         if prev:
-            videos = self._gallery_svc.list_videos(session_id=prev.id)
-            for v in videos:
-                self._gallery_svc.delete_video(v.id)
             LOGGER.info(
-                "Deleted %d video(s) from previous session %s for fresh start",
-                len(videos), prev.id[:8],
+                "Start Fresh: closing session %s, videos are kept in gallery",
+                prev.id[:8],
             )
         return self._session_svc.new_session_for_device(device_id)
 
