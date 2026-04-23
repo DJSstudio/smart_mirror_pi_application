@@ -124,6 +124,9 @@ class ShareServer:
         if self._server is not None:
             return self._port
         handler = self._make_handler()
+        # allow_reuse_address lets us rebind the fixed port immediately after
+        # a crash or unclean shutdown without waiting for the OS TIME_WAIT.
+        ThreadingHTTPServer.allow_reuse_address = True
         self._server = ThreadingHTTPServer((self._host, self._port), handler)
         self._port = self._server.server_address[1]
         self._thread = threading.Thread(
