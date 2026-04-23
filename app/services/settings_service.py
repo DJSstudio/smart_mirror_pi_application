@@ -26,6 +26,11 @@ _DEFAULTS: dict[str, Any] = {
     "mirror_screen_index": 1,
     # Logging
     "log_level": "INFO",
+    # Network — fixed port keeps localStorage device_id consistent across restarts
+    "share_server_port": 8765,
+    # Idle auto-logout
+    "idle_timeout_seconds": 300,
+    "idle_warning_seconds": 60,
 }
 
 
