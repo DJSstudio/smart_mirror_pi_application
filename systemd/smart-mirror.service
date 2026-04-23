@@ -5,20 +5,29 @@ Wants=graphical-session.target
 
 [Service]
 Type=simple
-# Try Wayland first, fall back to xcb (X11)
+
+# Qt / display environment
 Environment=WAYLAND_DISPLAY=wayland-0
 Environment=DISPLAY=:0
 Environment=QT_QPA_PLATFORM=wayland;xcb
 Environment=PYTHONUNBUFFERED=1
 
-# Adjust to your actual install path
+# Adjust to your actual install path (setup_autostart.sh patches this automatically)
 WorkingDirectory=/home/pi/smart_mirror_pi
-ExecStart=/home/pi/smart_mirror_pi/scripts/run_dev.sh
+ExecStart=/home/pi/smart_mirror_pi/scripts/run.sh
 
+# ── Restart policy ────────────────────────────────────────────────────────────
+# Restart on any non-zero exit, but give up after 5 attempts in 5 minutes
+# to avoid a crash-loop burning CPU indefinitely.
 Restart=on-failure
 RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# ── Logging ───────────────────────────────────────────────────────────────────
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=smart-mirror
 
 [Install]
 WantedBy=graphical-session.target

@@ -1,16 +1,54 @@
-.venv/
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
-.DS_Store
+*.pyo
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Build / packaging ─────────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+
+# ── Testing / coverage ────────────────────────────────────────────────────────
 .pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Type checking / linting ───────────────────────────────────────────────────
 .mypy_cache/
 .ruff_cache/
 
-# Runtime state
+# ── Application runtime data ──────────────────────────────────────────────────
+# Large video files, databases, logs, QR images — none belong in git
+data/
 *.sqlite3
+*.db
 *.log
 
-# Application output
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── OS artefacts ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
 /.local/

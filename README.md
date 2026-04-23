@@ -44,8 +44,11 @@ smart_mirror_pi/
 ├── scripts/
 │   ├── install_deps.sh          ← One-shot dependency installer
 │   ├── setup_autostart.sh       ← Enable systemd service
+│   ├── run.sh                   ← Production launcher (called by systemd)
 │   └── run_dev.sh               ← Development launch helper
-└── requirements.txt
+├── requirements.txt
+├── requirements.lock            ← Pinned versions for reproducible Pi installs
+└── .env.example                 ← Shell-level environment variable reference
 ```
 
 ---
@@ -210,6 +213,46 @@ brew install ffmpeg
 pip install PySide6
 # Note: rpicam-vid is Pi-only; the USB adapter works with any webcam
 ```
+
+---
+
+## Security model
+
+The embedded HTTP server is designed for **LAN use inside a retail store**.
+It is **not safe to expose directly to the internet** — there is no TLS, no
+authentication at the network layer, and no user account system.
+
+### Open routes (accessible to any device on the LAN)
+
+| Route | What it serves |
+|---|---|
+| `GET /` | Simple HTML gallery listing the session's recordings |
+| `GET /api/videos` | JSON array of current session videos |
+| `GET /download/<video_id>` | Raw video file stream (video IDs are UUIDs, not guessable) |
+
+These routes are intentionally open so that staff on the same network can view
+recordings without scanning a QR code.  If your network is untrusted, point
+`config/settings.json` → `"server_host"` to a specific LAN interface instead
+of `0.0.0.0`, or add firewall rules to restrict port access.
+
+### Session-gated route ("View on Phone" QR)
+
+`GET /session/<token>` — the QR code shown after tapping "View on Phone"
+contains a 30-minute single-use token.  The page performs a device-identity
+check: only the mobile that originally scanned the QR is admitted.
+
+### Export-gated route ("Share This Look" QR)
+
+`GET /export/<token>` — 10-minute export token, also device-gated.  After
+the device verifies its identity, a one-time 60-second download token
+(`/export/dl/<dl_token>`) is issued.  Download tokens are consumed on first
+use.
+
+### Rate limiting
+
+All QR/export/session API endpoints are rate-limited to **10 requests/burst,
+1 request/second** per IP address using a token-bucket algorithm.  HTTP `429`
+is returned when the limit is exceeded.
 
 ---
 

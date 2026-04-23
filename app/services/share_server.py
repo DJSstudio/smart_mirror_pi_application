@@ -30,7 +30,7 @@ import secrets
 import threading
 import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
@@ -41,6 +41,30 @@ _EXPORT_TTL  = 600   # seconds (10 min) — export QR link validity
 _SESSION_TTL = 1800  # seconds (30 min) — session gallery access token
 _LOGIN_TTL   = 300   # seconds  (5 min) — QR login token (auto-regenerated)
 _DL_TTL      = 60    # seconds (60 s)   — one-time download token after verification
+
+# Rate limiting — applied to sensitive API endpoints only.
+# Each IP gets a bucket of _RL_BURST tokens; one token is consumed per request.
+# Tokens refill at 1/second up to the burst limit.
+_RL_BURST    = 10    # max requests allowed in a burst
+_RL_RATE     = 1.0   # tokens refilled per second
+
+
+@dataclass
+class _RateBucket:
+    tokens: float
+    last_refill: float = field(default_factory=time.monotonic)
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(
+            _RL_BURST,
+            self.tokens + (now - self.last_refill) * _RL_RATE,
+        )
+        self.last_refill = now
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            return True
+        return False
 
 
 @dataclass
@@ -86,6 +110,10 @@ class ShareServer:
         # Registered by LoginController; called from HTTP handler threads (thread-safe:
         # SQLite WAL + check_same_thread=False).
         self._device_checker: Callable[[str], tuple[bool, str, int]] | None = None
+
+        # Per-IP rate-limit buckets for sensitive API endpoints.
+        self._rl_buckets: dict[str, _RateBucket] = {}
+        self._rl_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -395,6 +423,13 @@ class ShareServer:
     # Private
     # ------------------------------------------------------------------
 
+    def _check_rate_limit(self, ip: str) -> bool:
+        """Return True if this *ip* is within the rate limit, False if throttled."""
+        with self._rl_lock:
+            if ip not in self._rl_buckets:
+                self._rl_buckets[ip] = _RateBucket(tokens=float(_RL_BURST))
+            return self._rl_buckets[ip].allow()
+
     def _purge_expired(self) -> None:
         now = time.time()
         with self._lock:
@@ -426,10 +461,26 @@ class ShareServer:
             def log_message(self, fmt, *args):  # noqa: N802
                 LOGGER.debug("[share] " + fmt, *args)
 
+            # Sensitive API paths that consume a rate-limit token.
+            _RATE_LIMITED = frozenset({
+                "/api/qr/confirm",
+                "/api/qr/choice",
+                "/api/export/verify",
+                "/api/session/videos",
+            })
+
             def do_GET(self):  # noqa: N802
                 parsed = urllib.parse.urlparse(self.path)
                 path = parsed.path.rstrip("/") or "/"
                 qs = urllib.parse.parse_qs(parsed.query)
+
+                # Apply rate limiting to sensitive endpoints.
+                if path in self._RATE_LIMITED:
+                    ip = self.client_address[0]
+                    if not server._check_rate_limit(ip):
+                        self._err(429, "Too many requests — please wait and try again.")
+                        return
+
                 try:
                     if path in ("/", "/gallery"):
                         self._gallery()

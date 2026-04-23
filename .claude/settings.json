@@ -1,7 +1,29 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "Bash(pip freeze:*)",
+      "Bash(pip3 freeze:*)",
+      "Bash(python3 -c \"import PySide6; print\\('PySide6', PySide6.__version__\\)\")",
+      "Bash(python3 -c \"import qrcode; print\\('qrcode', qrcode.__version__\\)\")",
+      "Bash(python3 -c \"import PIL; print\\('Pillow', PIL.__version__\\)\")",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python3 -m pytest tests/ -v --tb=short)",
+      "Bash(python3 -m venv venv)",
+      "Bash(venv/bin/pip install:*)",
+      "Bash(venv/bin/python -m pytest tests/ -v --tb=short)",
+      "Bash(ruff check:*)",
+      "Bash(ruff format:*)",
+      "Bash(venv/bin/ruff check:*)",
+      "Bash(venv/bin/python -m ruff check .)",
+      "Bash(venv/bin/python -m pytest tests/ -q)",
+      "Bash(venv/bin/python -m mypy app/ --ignore-missing-imports)",
+      "Bash(venv/bin/pip list:*)",
+      "Bash(venv/bin/python -c \"import PySide6; print\\(PySide6.__version__\\)\")",
+      "Bash(ls -lh /Users/sarthak/smart_mirror_pi/scripts/run*.sh)",
+      "Bash(grep -n \"except:\\\\s*$\" /Users/sarthak/smart_mirror_pi/app -r --include=\"*.py\")",
+      "Bash(grep -A 5 \"class RaspberryPiCameraAdapter\" /Users/sarthak/smart_mirror_pi/app/platform/*.py)",
+      "Bash(grep -v \"^--$\")"
     ]
   }
 }

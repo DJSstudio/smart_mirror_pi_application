@@ -39,7 +39,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
             if "no cameras" in combined or "0 : " not in combined:
                 return False
             return True
-        except Exception:
+        except (OSError, subprocess.TimeoutExpired, ValueError):
             return True
 
     def start_recording(
