@@ -209,10 +209,25 @@ class LoginController(QObject):
                 session = self._new_session_for_device(device_id)
                 msg = f"New session started — {session.name}"
             elif action == "resume":
-                session, _ = self._session_svc.get_or_resume_for_device(device_id)
+                # Try to resume by stored device_id first.
+                existing = self._session_svc.get_device_session(device_id)
+                if existing:
+                    session, _ = self._session_svc.get_or_resume_for_device(device_id)
+                else:
+                    # device_id not in DB — the user's browser got a new ID
+                    # (Pi IP changed, localStorage cleared, etc.).  They saw the
+                    # active session in the choice dialog and explicitly chose Resume,
+                    # so relink that session to the new device_id.
+                    session = self._session_svc.relink_active_session(device_id)
+                    if session is None:
+                        session, _ = self._session_svc.get_or_resume_for_device(device_id)
+                    LOGGER.info(
+                        "Footfall: relinked session %s to new device_id %s",
+                        session.id[:8], device_id[:8],
+                    )
                 msg = f"Welcome back — resumed {session.name}"
             else:
-                # New device or same-session re-scan — use existing auto logic.
+                # Same-session re-scan or no choice needed.
                 session, was_resumed = self._session_svc.get_or_resume_for_device(device_id)
                 msg = (
                     f"Welcome back — resuming {session.name}"

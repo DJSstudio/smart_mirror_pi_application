@@ -70,6 +70,19 @@ class SessionService:
         """Return the most-recent session owned by *device_id* (any status)."""
         return self._repo.get_latest_session_for_device(device_id)
 
+    def relink_active_session(self, device_id: str) -> SessionRecord | None:
+        """Claim the currently active session for a new *device_id*.
+
+        Used when the same physical user returns but their browser has a new
+        device_id (e.g. the Pi's IP changed between visits, resetting
+        localStorage).  The session and its videos are preserved; only the
+        device_id ownership is updated.
+        """
+        current = self._repo.get_active_session()
+        if current is None:
+            return None
+        return self._repo.activate_session(current.id, device_id)
+
     def end_active_session(self) -> None:
         session = self._repo.get_active_session()
         if session:
