@@ -120,7 +120,8 @@ def main() -> int:
         mirror_display=mirror_display,
         settings=settings,
     )
-    share_server = ShareServer()
+    _share_port = int(settings.get("share_server_port", 8765))
+    share_server = ShareServer(port=_share_port)
     share_server.start()
 
     # ----------------------------------------------------------------
