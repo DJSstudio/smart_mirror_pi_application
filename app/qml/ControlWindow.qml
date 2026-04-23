@@ -132,6 +132,84 @@ ApplicationWindow {
         }
     }
 
+    // ── Idle auto-logout warning overlay ─────────────────────────────
+    // Shown during the final 60 seconds before auto-logout.
+    // Any tap anywhere dismisses it and resets the idle timer.
+    Rectangle {
+        id: idleOverlay
+        anchors.fill: parent
+        z: 100
+        visible: idleService && idleService.warningVisible
+        color: "#E6000000"
+
+        // Dismiss on any tap — the event filter will also call idle.reset()
+        MouseArea {
+            anchors.fill: parent
+            onClicked: { /* intentionally empty — tap anywhere resets via event filter */ }
+        }
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: 24
+
+            // Countdown ring
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                width: 120; height: 120; radius: 60
+                color: "transparent"
+                border.width: 4
+                border.color: "#C4956A"
+
+                Text {
+                    anchors.centerIn: parent
+                    text: idleService ? idleService.secondsLeft : ""
+                    font.pixelSize: 48
+                    font.weight: Font.Bold
+                    color: "#FFFFFF"
+                }
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Still there?"
+                font.pixelSize: 28
+                font.weight: Font.Bold
+                color: "#FFFFFF"
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Tap anywhere to stay logged in"
+                font.pixelSize: 16
+                color: "#B0A89E"
+            }
+
+            // Manual stay button for clarity
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                width: 200; height: 52; radius: 999
+                color: _stayMa.containsMouse ? "#D4A57A" : "#C4956A"
+                Behavior on color { ColorAnimation { duration: 100 } }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Stay Logged In"
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                    color: "#FFFFFF"
+                }
+
+                MouseArea {
+                    id: _stayMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { /* event filter resets idle on this click */ }
+                }
+            }
+        }
+    }
+
     // ── Status bar ────────────────────────────────────────────────────
     StatusBar {
         id: statusBar

@@ -319,8 +319,8 @@ Item {
             ActionTile {
                 Layout.fillWidth: true
                 icon: "⏏"
-                label: "New Session"
-                description: "Scan QR to switch user or start fresh"
+                label: "Log Out"
+                description: "End this session and return to login"
                 onTapped: loginController.startLogin()
             }
         }

@@ -10,5 +10,7 @@
   "compare_fill_crop": true,
   "control_screen_index": 0,
   "mirror_screen_index": 1,
-  "log_level": "INFO"
+  "log_level": "INFO",
+  "idle_timeout_seconds": 300,
+  "idle_warning_seconds": 60
 }

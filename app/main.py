@@ -25,6 +25,7 @@ from app.services.gallery_service import GalleryService
 from app.services.mirror_display_service import MirrorDisplayService
 from app.services.playback_service import PlaybackService
 from app.services.recording_service import RecordingService
+from app.services.idle_service import IdleService
 from app.services.screen_manager import ScreenManager
 from app.services.session_service import SessionService
 from app.services.settings_service import SettingsService
@@ -194,6 +195,7 @@ def main() -> int:
     ctx.setContextProperty("loginController", login_ctrl)
     ctx.setContextProperty("mirrorDisplay", mirror_display)
     ctx.setContextProperty("playbackService", playback_service)
+    ctx.setContextProperty("idleService", idle_service)
 
     qml_root = paths.repo_root / "app" / "qml"
     control_win = _load_qml(engine, qml_root / "ControlWindow.qml")
@@ -210,6 +212,29 @@ def main() -> int:
         assignment.mirror_screen.name(),
         assignment.single_screen_mode,
     )
+
+    # ----------------------------------------------------------------
+    # Idle auto-logout
+    # ----------------------------------------------------------------
+    _idle_timeout_ms = int(settings.get("idle_timeout_seconds", 300)) * 1_000
+    _idle_warning_ms = int(settings.get("idle_warning_seconds", 60)) * 1_000
+    idle_service = IdleService(
+        timeout_ms=_idle_timeout_ms,
+        warning_ms=_idle_warning_ms,
+    )
+    idle_service.install(app)
+    idle_service.timedOut.connect(login_ctrl.startLogin)
+
+    # Pause on pages where auto-logout makes no sense:
+    #   login     — already at the login screen, nothing to time out
+    #   recording — never interrupt an active capture mid-session
+    def _on_page_changed() -> None:
+        if app_ctrl.currentPage in ("login", "recording"):
+            idle_service.stop()
+        else:
+            idle_service.start()
+
+    app_ctrl.currentPageChanged.connect(_on_page_changed)
 
     # Start QR login flow: show QR on mirror, login page on control window.
     # The login controller will navigate to dashboard after a successful scan.
