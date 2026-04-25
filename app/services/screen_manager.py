@@ -177,34 +177,64 @@ def _place_fullscreen(window, screen) -> None:
 
 
 def _map_touch_to_screen(screen_name: str) -> None:
-    """Use xinput to restrict all touch/pointer input devices to the control screen.
+    """Map all pointer input devices to the control screen (X11 only).
 
-    On Raspberry Pi with two HDMI displays the touchscreen defaults to the
-    combined virtual desktop, so touch events that physically land on the mirror
-    display (the wrong screen) also fire inside the control window's coordinate
-    space.  Mapping the device to the control output fixes the coordinate offset
-    and ensures the mirror display ignores touch entirely.
+    On a dual-display X11 setup the touchscreen covers the full virtual
+    desktop, so taps can land in the wrong window's coordinate space.
+    Mapping every slave pointer device to the control screen output fixes
+    the coordinate offset without needing to identify device names.
 
-    Silently skips if xinput is not installed or no touch device is found.
+    On Wayland the compositor routes touch to whichever surface owns the
+    output, so no manual mapping is required.
     """
+    import os  # noqa: PLC0415
+
+    # Wayland: compositor handles input routing automatically — nothing to do.
+    wayland = bool(os.environ.get("WAYLAND_DISPLAY") or
+                   os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland")
+    if wayland:
+        LOGGER.debug("Touch mapping: Wayland detected — compositor handles routing")
+        return
+
     if not shutil.which("xinput"):
         LOGGER.debug("xinput not found — skipping touch mapping")
         return
+
     try:
+        # List all devices in short format; slave pointer lines contain
+        # "slave  pointer" — these are all physical input devices that can
+        # produce pointer/touch events (mice, touchscreens, trackpads, etc.).
         result = subprocess.run(
-            ["xinput", "list", "--name-only"],
+            ["xinput", "list", "--short"],
             capture_output=True, text=True, timeout=5,
         )
-        for raw_name in result.stdout.splitlines():
-            name = raw_name.strip()
-            if not name:
+
+        mapped = 0
+        for line in result.stdout.splitlines():
+            if "slave  pointer" not in line:
                 continue
-            lower = name.lower()
-            if any(k in lower for k in ("touch", "wacom", "pen", "digitizer", "stylus", "waveshare")):
-                subprocess.run(
-                    ["xinput", "--map-to-output", name, screen_name],
-                    capture_output=True, timeout=5,
-                )
-                LOGGER.info("Mapped touch device %r → %s", name, screen_name)
+            # Extract device id from "... id=N ..."
+            try:
+                dev_id = line.split("id=")[1].split()[0].strip()
+                int(dev_id)  # validate it's a number
+            except (IndexError, ValueError):
+                continue
+
+            r = subprocess.run(
+                ["xinput", "--map-to-output", dev_id, screen_name],
+                capture_output=True, timeout=5,
+            )
+            dev_name = line.split("↳")[-1].split("id=")[0].strip()
+            if r.returncode == 0:
+                LOGGER.info("Touch: mapped %r (id=%s) → %s", dev_name, dev_id, screen_name)
+                mapped += 1
+            else:
+                LOGGER.debug("Touch: skipped %r (id=%s): %s", dev_name, dev_id, r.stderr.strip())
+
+        if mapped == 0:
+            LOGGER.warning("Touch: no slave pointer devices found to map")
+        else:
+            LOGGER.info("Touch: mapped %d pointer device(s) → %s", mapped, screen_name)
+
     except Exception as exc:  # noqa: BLE001
         LOGGER.debug("Touch mapping skipped: %s", exc)

@@ -25,8 +25,10 @@ from app.services.gallery_service import GalleryService
 from app.services.mirror_display_service import MirrorDisplayService
 from app.services.playback_service import PlaybackService
 from app.services.recording_service import RecordingService
+from app.controllers.wifi_controller import WifiController
 from app.services.cleanup_service import CleanupService
 from app.services.idle_service import IdleService
+from app.services.wifi_service import WifiService
 from app.services.screen_manager import ScreenManager
 from app.services.session_service import SessionService
 from app.services.settings_service import SettingsService
@@ -189,6 +191,7 @@ def main() -> int:
         temp_dir=paths.temp_dir,
         app_controller=app_ctrl,
     )
+    wifi_ctrl = WifiController(WifiService())
     settings_ctrl = SettingsController(
         settings=settings,
         mirror_display=mirror_display,
@@ -232,6 +235,7 @@ def main() -> int:
     ctx.setContextProperty("settingsController", settings_ctrl)
     ctx.setContextProperty("exportController", export_ctrl)
     ctx.setContextProperty("loginController", login_ctrl)
+    ctx.setContextProperty("wifiController", wifi_ctrl)
     ctx.setContextProperty("mirrorDisplay", mirror_display)
     ctx.setContextProperty("playbackService", playback_service)
     ctx.setContextProperty("idleService", idle_service)
