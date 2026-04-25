@@ -121,7 +121,7 @@ Item {
             Text {
                 anchors { fill: parent; leftMargin: 16; rightMargin: 16 }
                 verticalAlignment: Text.AlignVCenter
-                text: "⚠  " + loginController.errorMessage
+                text: "  " + loginController.errorMessage
                 font.pixelSize: 13
                 color: "#FFFFFF"
                 elide: Text.ElideRight
@@ -140,10 +140,9 @@ Item {
         color: "#FFFFFF"
         border.width: 1
         border.color: "#E8E2DC"
-
-        // Top rounded corners only
         radius: 16
-        // Mask bottom corners square so it flush-fits the window bottom
+
+        // Square off the bottom corners so it flush-fits the window edge
         Rectangle {
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
             height: parent.radius
@@ -155,7 +154,6 @@ Item {
         property bool wifiExpanded: false
         property int expandedHeight: 380
 
-        // Guard: wifiController may not be registered in all environments
         readonly property bool wifiReady: typeof wifiController !== "undefined"
                                           && wifiController !== null
                                           && wifiController.available
@@ -167,37 +165,31 @@ Item {
             height: 56
 
             RowLayout {
-                anchors {
-                    fill: parent
-                    leftMargin: 20; rightMargin: 16
-                }
+                anchors { fill: parent; leftMargin: 20; rightMargin: 16 }
                 spacing: 10
 
-                // WiFi icon
                 Text {
-                    text: "⌘"
-                    font.pixelSize: 18
+                    text: "Wi-Fi"
+                    font.pixelSize: 14
+                    font.weight: Font.Medium
                     color: "#C4956A"
                 }
 
-                // Current SSID label
                 Text {
                     Layout.fillWidth: true
                     text: {
-                        if (!wifiPanel.wifiReady) return "Wi-Fi"
+                        if (!wifiPanel.wifiReady) return ""
                         var s = wifiController.status
                         if (s === "scanning")   return "Scanning…"
                         if (s === "connecting") return "Connecting…"
                         var ssid = wifiController.currentSsid
-                        return ssid.length > 0 ? ssid : "Wi-Fi — not connected"
+                        return ssid.length > 0 ? ssid : "Not connected"
                     }
                     font.pixelSize: 14
-                    font.weight: Font.Medium
-                    color: "#1C1917"
+                    color: "#6B6560"
                     elide: Text.ElideRight
                 }
 
-                // Change / chevron button
                 Rectangle {
                     width: 72; height: 32; radius: 8
                     color: headerMa.containsMouse ? "#F0EBE5" : "transparent"
@@ -206,7 +198,7 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        text: wifiPanel.wifiExpanded ? "Close ▲" : "Change ▼"
+                        text: wifiPanel.wifiExpanded ? "Close  ▲" : "Change  ▼"
                         font.pixelSize: 12
                         font.weight: Font.Medium
                         color: "#C4956A"
@@ -219,9 +211,8 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             wifiPanel.wifiExpanded = !wifiPanel.wifiExpanded
-                            if (wifiPanel.wifiExpanded && wifiController.networks.length === 0) {
+                            if (wifiPanel.wifiExpanded && wifiController.networks.length === 0)
                                 wifiController.scan()
-                            }
                         }
                     }
                 }
@@ -230,26 +221,24 @@ Item {
 
         // ── Expanded body ────────────────────────────────────────────────
         Item {
+            id: expandedBody
             anchors {
-                top: wifiHeader.bottom
-                left: parent.left; right: parent.right; bottom: parent.bottom
-                topMargin: 0; leftMargin: 16; rightMargin: 16; bottomMargin: 12
+                top: wifiHeader.bottom; bottom: parent.bottom
+                left: parent.left; right: parent.right
+                leftMargin: 16; rightMargin: 16; bottomMargin: 12
             }
             visible: wifiPanel.wifiExpanded && wifiPanel.wifiReady
             opacity: wifiPanel.wifiExpanded ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: 150 } }
 
-            // Tracks which SSID is selected for password entry
             property string selectedSsid: ""
             property bool selectedSecured: false
-
-            id: expandedBody
 
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 8
 
-                // ── Status / error banner ────────────────────────────────
+                // Status / error banner
                 Rectangle {
                     Layout.fillWidth: true
                     height: 36; radius: 8
@@ -261,15 +250,15 @@ Item {
                         anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
                         verticalAlignment: Text.AlignVCenter
                         text: wifiController.status === "connected"
-                              ? "✓  Connected to " + wifiController.currentSsid
-                              : "⚠  " + wifiController.errorMessage
+                              ? "Connected to " + wifiController.currentSsid
+                              : wifiController.errorMessage
                         font.pixelSize: 13
                         color: wifiController.status === "connected" ? "#7DE870" : "#E87070"
                         elide: Text.ElideRight
                     }
                 }
 
-                // ── Network list ─────────────────────────────────────────
+                // Network list box
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -279,46 +268,25 @@ Item {
                     border.color: "#E8E2DC"
                     clip: true
 
-                    // Scanning / empty placeholder
+                    // Empty / scanning placeholder
                     Text {
                         anchors.centerIn: parent
                         visible: wifiController.networks.length === 0
-                        text: wifiController.status === "scanning" ? "Scanning for networks…" : "No networks found"
+                        text: wifiController.status === "scanning"
+                              ? "Scanning for networks…" : "No networks found"
                         font.pixelSize: 13
                         color: "#9E9890"
                     }
 
-                    // Spinner dots while scanning
-                    RowLayout {
-                        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: 8 }
-                        spacing: 6
-                        visible: wifiController.status === "scanning"
-
-                        Repeater {
-                            model: 3
-                            Rectangle {
-                                width: 6; height: 6; radius: 3
-                                color: "#C4956A"
-                                SequentialAnimation on opacity {
-                                    running: wifiController.status === "scanning"
-                                    loops: Animation.Infinite
-                                    NumberAnimation { to: 0.2; duration: 400 }
-                                    NumberAnimation { to: 1.0; duration: 400 }
-                                    PauseAnimation { duration: index * 150 }
-                                }
-                            }
-                        }
-                    }
-
-                    // Scrollable network list
+                    // Scrollable network list — Column (not ColumnLayout) inside Flickable
                     Flickable {
                         anchors { fill: parent; margins: 4 }
-                        contentHeight: netColumn.height
+                        contentHeight: netCol.height
                         clip: true
                         visible: wifiController.networks.length > 0
 
-                        ColumnLayout {
-                            id: netColumn
+                        Column {
+                            id: netCol
                             width: parent.width
                             spacing: 0
 
@@ -326,17 +294,18 @@ Item {
                                 model: wifiController.networks
 
                                 Rectangle {
-                                    Layout.fillWidth: true
+                                    width: netCol.width
                                     height: 44
                                     color: {
-                                        if (modelData.inUse) return "#FFF8F0"
+                                        if (modelData.inUse)
+                                            return "#FFF8F0"
                                         if (modelData.ssid === expandedBody.selectedSsid)
                                             return "#F5EFE8"
                                         return netMa.containsMouse ? "#EEEAE5" : "transparent"
                                     }
                                     Behavior on color { ColorAnimation { duration: 80 } }
 
-                                    // Bottom divider
+                                    // Divider
                                     Rectangle {
                                         anchors { bottom: parent.bottom; left: parent.left; right: parent.right; leftMargin: 8; rightMargin: 8 }
                                         height: 1
@@ -344,56 +313,64 @@ Item {
                                         visible: index < wifiController.networks.length - 1
                                     }
 
-                                    RowLayout {
-                                        anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
-                                        spacing: 8
+                                    // Signal strength: 3 vertical bars using Item (not Row) to allow bottom-alignment
+                                    Item {
+                                        id: sigBars
+                                        anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
+                                        width: 18; height: 14
 
-                                        // Signal strength bars (3 stacked rects)
-                                        Row {
-                                            spacing: 2
-                                            Repeater {
-                                                model: 3
-                                                Rectangle {
-                                                    width: 4
-                                                    height: 6 + index * 4   // 6, 10, 14
-                                                    anchors.bottom: parent ? parent.bottom : undefined
-                                                    radius: 2
-                                                    color: {
-                                                        var lit = modelData.signal > 66 ? 3
-                                                                : modelData.signal > 33 ? 2 : 1
-                                                        if (index < lit) {
-                                                            return modelData.signal > 66 ? "#4CAF50"
-                                                                 : modelData.signal > 33 ? "#FFC107"
-                                                                 : "#F44336"
-                                                        }
-                                                        return "#D4CFC9"
-                                                    }
+                                        Repeater {
+                                            model: 3
+                                            Rectangle {
+                                                x: index * 6
+                                                width: 4
+                                                height: 4 + index * 5   // 4, 9, 14
+                                                anchors.bottom: sigBars.bottom
+                                                radius: 1
+                                                color: {
+                                                    var lit = modelData.signal > 66 ? 3
+                                                            : modelData.signal > 33 ? 2 : 1
+                                                    if (index < lit)
+                                                        return modelData.signal > 66 ? "#4CAF50"
+                                                             : modelData.signal > 33 ? "#FFC107"
+                                                             : "#F44336"
+                                                    return "#D4CFC9"
                                                 }
                                             }
                                         }
+                                    }
 
-                                        // SSID
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: modelData.ssid
-                                            font.pixelSize: 14
-                                            font.weight: modelData.inUse ? Font.DemiBold : Font.Normal
-                                            color: "#1C1917"
-                                            elide: Text.ElideRight
+                                    // SSID text
+                                    Text {
+                                        anchors {
+                                            left: sigBars.right; leftMargin: 8
+                                            right: rowIcons.left; rightMargin: 6
+                                            verticalCenter: parent.verticalCenter
                                         }
+                                        text: modelData.ssid
+                                        font.pixelSize: 14
+                                        font.weight: modelData.inUse ? Font.DemiBold : Font.Normal
+                                        color: "#1C1917"
+                                        elide: Text.ElideRight
+                                    }
 
-                                        // Lock icon for secured networks
+                                    // Right-side icons: lock + checkmark
+                                    Row {
+                                        id: rowIcons
+                                        anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                                        spacing: 6
+
                                         Text {
                                             visible: modelData.secured
-                                            text: "🔒"
-                                            font.pixelSize: 12
+                                            text: "lock"
+                                            font.pixelSize: 11
+                                            color: "#9E9890"
                                         }
 
-                                        // In-use checkmark
                                         Text {
                                             visible: modelData.inUse
                                             text: "✓"
-                                            font.pixelSize: 13
+                                            font.pixelSize: 14
                                             font.weight: Font.Bold
                                             color: "#C4956A"
                                         }
@@ -410,7 +387,8 @@ Item {
                                             expandedBody.selectedSsid = modelData.ssid
                                             expandedBody.selectedSecured = modelData.secured
                                             passwordField.text = ""
-                                            passwordField.forceActiveFocus()
+                                            if (modelData.secured)
+                                                passwordField.forceActiveFocus()
                                         }
                                     }
                                 }
@@ -419,13 +397,12 @@ Item {
                     }
                 }
 
-                // ── Password row (shown when a secured network is selected) ──
+                // Password row — only shown when a network is selected
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
                     visible: expandedBody.selectedSsid.length > 0
 
-                    // Password input
                     Rectangle {
                         Layout.fillWidth: true
                         height: 40; radius: 8
@@ -434,76 +411,40 @@ Item {
                         border.color: passwordField.activeFocus ? "#C4956A" : "#E8E2DC"
                         Behavior on border.color { ColorAnimation { duration: 100 } }
 
-                        RowLayout {
-                            anchors { fill: parent; leftMargin: 12; rightMargin: 8 }
-                            spacing: 6
+                        TextInput {
+                            id: passwordField
+                            anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
+                            verticalAlignment: TextInput.AlignVCenter
+                            echoMode: TextInput.Password
+                            font.pixelSize: 13
+                            color: "#1C1917"
+                            clip: true
+                            onAccepted: doConnect()
 
-                            TextInput {
-                                id: passwordField
-                                Layout.fillWidth: true
-                                echoMode: showPassMa.containsMouse
-                                          ? TextInput.Normal
-                                          : TextInput.Password
-                                placeholderText: expandedBody.selectedSecured
-                                                 ? "Password for "" + expandedBody.selectedSsid + """
-                                                 : "Open network — no password needed"
-                                font.pixelSize: 13
-                                color: "#1C1917"
-                                clip: true
-                                onAccepted: connectBtn.doConnect()
-
-                                Text {
-                                    anchors.fill: parent
-                                    verticalAlignment: Text.AlignVCenter
-                                    text: passwordField.placeholderText
-                                    font: passwordField.font
-                                    color: "#B0A89E"
-                                    visible: passwordField.text.length === 0
-                                             && !passwordField.activeFocus
-                                }
-                            }
-
-                            // Show / hide password toggle
+                            // Placeholder
                             Text {
-                                id: showPassMa
-                                text: showPassMa.containsMouse ? "👁" : "👁"
-                                font.pixelSize: 16
-                                color: "#9E9890"
-                                visible: expandedBody.selectedSecured
-                                         && passwordField.text.length > 0
-
-                                // Use MouseArea for hover tracking
-                                property bool containsMouse: false
-                                MouseArea {
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onEntered: showPassMa.containsMouse = true
-                                    onExited:  showPassMa.containsMouse = false
-                                }
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                text: expandedBody.selectedSecured
+                                      ? "Password for " + expandedBody.selectedSsid
+                                      : "Open network — tap Connect"
+                                font.pixelSize: 13
+                                color: "#B0A89E"
+                                visible: passwordField.text.length === 0
+                                         && !passwordField.activeFocus
                             }
                         }
                     }
 
-                    // Connect button
                     Rectangle {
                         id: connectBtn
                         width: 96; height: 40; radius: 8
                         color: connectMa.containsMouse ? "#D4A57A" : "#C4956A"
                         Behavior on color { ColorAnimation { duration: 100 } }
 
-                        function doConnect() {
-                            if (expandedBody.selectedSsid.length === 0) return
-                            if (wifiController.status === "connecting") return
-                            wifiController.connectToNetwork(
-                                expandedBody.selectedSsid,
-                                passwordField.text
-                            )
-                        }
-
                         Text {
                             anchors.centerIn: parent
-                            text: wifiController.status === "connecting" ? "…" : "Connect"
+                            text: wifiController.status === "connecting" ? "..." : "Connect"
                             font.pixelSize: 14
                             font.weight: Font.DemiBold
                             color: "#FFFFFF"
@@ -514,26 +455,25 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: connectBtn.doConnect()
+                            onClicked: doConnect()
                         }
                     }
                 }
 
-                // ── Footer row: Scan + Skip login ───────────────────────
+                // Footer: refresh + skip login
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    // Refresh / Scan button
                     Rectangle {
-                        height: 36; width: 100; radius: 8
+                        height: 36; width: 110; radius: 8
                         color: scanMa.containsMouse ? "#F0EBE5" : "transparent"
                         border.width: 1; border.color: "#E8E2DC"
                         Behavior on color { ColorAnimation { duration: 100 } }
 
                         Text {
                             anchors.centerIn: parent
-                            text: wifiController.status === "scanning" ? "Scanning…" : "↺  Refresh"
+                            text: wifiController.status === "scanning" ? "Scanning..." : "Refresh"
                             font.pixelSize: 13
                             color: "#6B6560"
                         }
@@ -551,9 +491,8 @@ Item {
 
                     Item { Layout.fillWidth: true }
 
-                    // Skip login shortcut (useful during setup)
                     Text {
-                        text: "Skip login →"
+                        text: "Skip login"
                         font.pixelSize: 13
                         color: skipMa.containsMouse ? "#C4956A" : "#9E9890"
                         Behavior on color { ColorAnimation { duration: 100 } }
@@ -570,14 +509,13 @@ Item {
             }
         }
 
-        // Auto-regenerate QR after a successful WiFi connect (IP changes)
+        // Regenerate QR after WiFi connect — new network means new IP
         Connections {
-            target: typeof wifiController !== "undefined" ? wifiController : null
+            target: wifiPanel.wifiReady ? wifiController : null
             function onChanged() {
                 if (wifiController.status === "connected") {
-                    // Brief delay so the new IP is routed before we read it
-                    wifiRegenTimer.restart()
                     wifiPanel.wifiExpanded = false
+                    wifiRegenTimer.restart()
                 }
             }
         }
@@ -588,5 +526,12 @@ Item {
             repeat: false
             onTriggered: loginController.startLogin()
         }
+    }
+
+    // Helper called by both Connect button and Enter key
+    function doConnect() {
+        if (expandedBody.selectedSsid.length === 0) return
+        if (wifiController.status === "connecting") return
+        wifiController.connectToNetwork(expandedBody.selectedSsid, passwordField.text)
     }
 }
