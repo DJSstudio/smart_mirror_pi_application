@@ -282,82 +282,237 @@ def _map_touch_to_screen(screen_name: str) -> None:
 
 
 def _map_touch_wayland(screen_name: str) -> None:
-    """Attempt touch-to-output mapping on Wayland.
+    """Map touch to the control output on Wayland — no reboot required.
 
-    wlroots-based compositors (Wayfire, labwc) route touch based on which
-    output the touch device is associated with.  We write a libinput device
-    quirk file that sets the ``OutputName`` hint — the compositor picks this
-    up on next launch.
+    Two-stage approach:
 
-    If the quirk file cannot be written we log the manual steps instead.
+    1. **Runtime** — try ``wf-msg`` (Wayfire IPC) to apply the mapping to the
+       *running* compositor immediately.  If it succeeds, touch is fixed right
+       now without any restart.
+
+    2. **Persistent** — write ``[input-device:<name>]`` sections to
+       ``~/.config/wayfire.ini`` so the mapping survives compositor restarts
+       automatically.  This is a one-time write; future app launches skip it.
     """
-    import re  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
-    # Find touch devices via libinput (if available)
-    touch_devices: list[str] = []
-    if shutil.which("libinput"):
-        try:
-            r = subprocess.run(
-                ["libinput", "list-devices"],
-                capture_output=True, text=True, timeout=10,
-            )
-            current_device = ""
-            for line in r.stdout.splitlines():
-                if line.startswith("Device:"):
-                    current_device = line.split(":", 1)[1].strip()
-                elif "Capabilities:" in line and "touch" in line.lower() and current_device:
-                    touch_devices.append(current_device)
-                    current_device = ""
-        except Exception:  # noqa: BLE001
-            pass
-
-    if not touch_devices:
+    touch_names = _find_touch_device_names()
+    if not touch_names:
         LOGGER.warning(
-            "Touch mapping (Wayland): could not detect touch device. "
-            "To fix touch alignment, add to ~/.config/wayfire.ini:\n"
-            "  [input]\n"
-            "  touch_from_output = %s",
+            "Touch (Wayland): no touch device found in /sys/class/input. "
+            "Run 'libinput list-devices' to find the device name, then add:\n"
+            "  [input-device:<device-name>]\n"
+            "  output = %s\n"
+            "to ~/.config/wayfire.ini",
             screen_name,
         )
         return
 
-    # Write ~/.local/share/libinput/local-overrides.quirks
-    # libinput picks this up without requiring root.
-    quirk_dir = Path.home() / ".local" / "share" / "libinput"
-    quirk_file = quirk_dir / "local-overrides.quirks"
-    try:
-        quirk_dir.mkdir(parents=True, exist_ok=True)
-        existing = quirk_file.read_text() if quirk_file.exists() else ""
+    # ── Stage 1: runtime via wf-msg (no reboot) ──────────────────────────
+    runtime_ok = _wfmsg_map_touch(touch_names, screen_name)
 
-        # Build entries for each touch device
-        new_entries: list[str] = []
-        for dev_name in touch_devices:
-            safe_name = re.escape(dev_name)
-            entry = (
-                f"[Touch output mapping for {dev_name}]\n"
-                f"MatchName={dev_name}\n"
-                f"AttrOutputMappingHint={screen_name}\n"
+    # ── Stage 2: persist to wayfire.ini ──────────────────────────────────
+    wayfire_ini = Path.home() / ".config" / "wayfire.ini"
+    if not wayfire_ini.exists():
+        if not runtime_ok:
+            LOGGER.warning(
+                "Touch (Wayland): ~/.config/wayfire.ini not found and wf-msg "
+                "unavailable. Create the file and add:\n"
+                "  [input-device:%s]\n  output = %s",
+                touch_names[0], screen_name,
             )
-            if dev_name not in existing:
-                new_entries.append(entry)
+        return
 
-        if new_entries:
-            with quirk_file.open("a") as fh:
-                fh.write("\n" + "\n".join(new_entries))
+    try:
+        content = wayfire_ini.read_text()
+        new_sections: list[str] = []
+        for name in touch_names:
+            if f"[input-device:{name}]" not in content:
+                new_sections.append(f"\n[input-device:{name}]\noutput = {screen_name}\n")
+
+        if new_sections:
+            with wayfire_ini.open("a") as fh:
+                fh.write("".join(new_sections))
             LOGGER.info(
-                "Touch (Wayland): wrote libinput quirks for %d device(s) → %s. "
-                "Restart the compositor or reboot to apply.",
-                len(new_entries), screen_name,
+                "Touch (Wayland): persisted %d device section(s) to wayfire.ini → %s",
+                len(new_sections), screen_name,
             )
         else:
-            LOGGER.debug("Touch (Wayland): libinput quirks already present")
+            LOGGER.debug("Touch (Wayland): wayfire.ini already has device sections")
 
     except Exception as exc:  # noqa: BLE001
-        LOGGER.warning(
-            "Touch (Wayland): could not write libinput quirks (%s). "
-            "Manual fix — add to ~/.config/wayfire.ini:\n"
-            "  [input]\n"
-            "  touch_from_output = %s",
-            exc, screen_name,
-        )
+        LOGGER.warning("Touch (Wayland): could not update wayfire.ini: %s", exc)
+
+
+def _wfmsg_map_touch(touch_names: list[str], screen_name: str) -> bool:
+    """Apply touch-to-output mapping at runtime via Wayfire IPC (wf-msg).
+
+    Returns True if at least one device was successfully mapped.
+    Falls back to the JSON socket if the ``wf-msg`` CLI is unavailable.
+    """
+    import json    # noqa: PLC0415
+    import os      # noqa: PLC0415
+    import socket  # noqa: PLC0415
+    import struct  # noqa: PLC0415
+
+    mapped = 0
+
+    LOGGER.info(
+        "Touch (Wayland): attempting runtime map of %s → %s",
+        touch_names, screen_name,
+    )
+
+    # ── Try wf-msg CLI first (simpler) ───────────────────────────────────
+    wf_msg = shutil.which("wf-msg")
+    if wf_msg:
+        LOGGER.debug("Touch: wf-msg found at %s", wf_msg)
+        for name in touch_names:
+            try:
+                r = subprocess.run(
+                    ["wf-msg", "input-device", name, "output", screen_name],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.returncode == 0:
+                    LOGGER.info(
+                        "Touch (Wayland): runtime mapped %r → %s via wf-msg",
+                        name, screen_name,
+                    )
+                    mapped += 1
+                else:
+                    LOGGER.warning(
+                        "Touch (Wayland): wf-msg failed for %r (rc=%d): %s",
+                        name, r.returncode, r.stderr.strip(),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.debug("Touch: wf-msg exception for %r: %s", name, exc)
+        if mapped:
+            return True
+    else:
+        LOGGER.debug("Touch: wf-msg not in PATH")
+
+    # ── Try Wayfire JSON socket directly ─────────────────────────────────
+    socket_path = _find_wayfire_socket()
+    if not socket_path:
+        LOGGER.debug("Touch (Wayland): Wayfire socket not found — wf-msg unavailable")
+        return False
+
+    for name in touch_names:
+        try:
+            msg = json.dumps({
+                "method": "input/configure-device",
+                "data": {"device": name, "output": screen_name},
+            }).encode()
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(3)
+                s.connect(socket_path)
+                s.sendall(struct.pack("<I", len(msg)) + msg)
+                hdr = s.recv(4)
+                if len(hdr) == 4:
+                    length = struct.unpack("<I", hdr)[0]
+                    resp = json.loads(s.recv(length))
+                    if resp.get("result") == "ok":
+                        LOGGER.info(
+                            "Touch (Wayland): runtime mapped %r → %s via IPC socket",
+                            name, screen_name,
+                        )
+                        mapped += 1
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.debug("Touch (Wayland): IPC socket attempt failed: %s", exc)
+
+    return mapped > 0
+
+
+def _find_wayfire_socket() -> str:
+    """Locate the Wayfire IPC socket path.
+
+    Checks in order:
+      1. ``$WAYFIRE_SOCKET`` environment variable
+      2. Glob ``$XDG_RUNTIME_DIR/wayfire-*.socket``
+      3. Glob ``/run/user/<uid>/wayfire-*.socket``
+
+    Returns the first existing path, or ``""`` if none found.
+    """
+    import glob  # noqa: PLC0415
+    import os    # noqa: PLC0415
+
+    explicit = os.environ.get("WAYFIRE_SOCKET", "")
+    if explicit and os.path.exists(explicit):
+        return explicit
+
+    # Scan runtime dir for any wayfire socket
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    for path in sorted(glob.glob(f"{runtime_dir}/wayfire*.socket")):
+        if os.path.exists(path):
+            LOGGER.debug("Touch: found Wayfire socket at %s", path)
+            return path
+
+    return ""
+
+
+def _find_touch_device_names() -> list[str]:
+    """Return input device names that look like touchscreens.
+
+    Two sources are tried in order:
+
+    1. ``libinput list-devices`` — returns the *libinput* device name, which is
+       what Wayfire and other wlroots compositors use internally.  This is the
+       most reliable source because the name matches exactly what the compositor
+       expects in IPC calls and ``wayfire.ini`` sections.
+
+    2. ``/sys/class/input/event*/device/name`` — the *kernel* event device name.
+       Usually identical to the libinput name but can differ on some setups
+       (e.g. "Goodix Capacitive TouchScreen" vs "Goodix-TS").
+
+    De-duplicated; libinput names appear first.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    _TOUCH_KEYWORDS = ("touch", "goodix", "ft5", "eeti", "ilitek", "waveshare")
+    names: list[str] = []
+
+    def _add(name: str) -> None:
+        if name and name not in names:
+            names.append(name)
+
+    # ── Source 1: libinput (preferred — matches compositor's view) ────────
+    if shutil.which("libinput"):
+        try:
+            result = subprocess.run(
+                ["libinput", "list-devices"],
+                capture_output=True, text=True, timeout=5,
+            )
+            current_name = ""
+            is_touch = False
+            for line in result.stdout.splitlines():
+                if line.startswith("Device:"):
+                    # Flush previous device
+                    if is_touch and current_name:
+                        _add(current_name)
+                    current_name = line.split("Device:", 1)[1].strip()
+                    is_touch = False
+                elif "Capabilities" in line and "touch" in line.lower():
+                    is_touch = True
+                elif any(k in line.lower() for k in _TOUCH_KEYWORDS):
+                    # Catch keyword in any field (Kernel:, Udev:, etc.)
+                    pass
+            # Flush last device
+            if is_touch and current_name:
+                _add(current_name)
+            if names:
+                LOGGER.debug("Touch: libinput devices found: %s", names)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ── Source 2: kernel sysfs (fallback) ─────────────────────────────────
+    try:
+        for name_file in Path("/sys/class/input").glob("event*/device/name"):
+            name = name_file.read_text().strip()
+            if any(k in name.lower() for k in _TOUCH_KEYWORDS):
+                _add(name)
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not names:
+        LOGGER.debug("Touch: no touch devices found via libinput or sysfs")
+
+    return names

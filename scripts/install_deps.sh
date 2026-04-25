@@ -25,6 +25,8 @@ COMMON_PKGS=(
     fonts-noto
     fonts-noto-cjk
     rpicam-apps
+    # Input device tools (touch-to-screen mapping on Wayland)
+    libinput-tools
     # GStreamer (needed for Qt Multimedia on Trixie)
     gstreamer1.0-plugins-base
     gstreamer1.0-plugins-good
