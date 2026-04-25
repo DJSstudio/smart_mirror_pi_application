@@ -15,6 +15,7 @@ Exposed to QML as ``loginController``.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
@@ -114,8 +115,11 @@ class LoginController(QObject):
         self._error = ""
 
         # Record logout of the currently active session (if any).
+        # Only record logout for sessions that have a real user (device_id set).
+        # Anonymous/placeholder sessions (created on startup before any scan)
+        # are silently discarded — recording a logout for them pollutes footfall.
         active = self._session_svc.get_active_session()
-        if active:
+        if active and active.device_id:
             self._footfall.record_logout(active.id, reason=reason)
             LOGGER.info(
                 "Footfall: logout session=%s reason=%s", active.id[:8], reason
@@ -130,8 +134,19 @@ class LoginController(QObject):
             self._token_hash = token_hash
 
             url = f"{self._server_url}/qr/activate?token={raw_token}"
-            qr_path = generate_qr_png(url, self._temp_dir / "login_qr.png")
+            # Use a timestamp-suffixed filename so the URI changes every
+            # generation — Qt's Image won't reload if the source string is
+            # identical, even with cache: false.
+            qr_filename = f"login_qr_{int(time.time() * 1000)}.png"
+            qr_path = generate_qr_png(url, self._temp_dir / qr_filename)
             self._qr_image_url = qr_path.as_uri()
+            # Remove stale QR files to avoid temp dir accumulation.
+            for old in self._temp_dir.glob("login_qr_*.png"):
+                if old != qr_path:
+                    try:
+                        old.unlink()
+                    except Exception:  # noqa: BLE001
+                        pass
 
             # Navigate first so any previous media is cleared, then set mirror.
             self._app.showLogin()
@@ -200,8 +215,15 @@ class LoginController(QObject):
             self._on_activated(device_id, action)
         elif status == "expired":
             LOGGER.debug("Login QR expired — regenerating")
-            self.startLogin()
-        # "pending" and "pending_choice": keep waiting
+            self._do_logout_and_show_qr(reason="qr_refresh")
+        elif status == "pending":
+            # Proactively regenerate 30 s before expiry so the mirror never
+            # shows a QR that is about to expire when the user walks up.
+            remaining = self._server.login_token_remaining(self._token_hash)
+            if remaining < 30:
+                LOGGER.debug("Login QR expiring in %ds — proactive refresh", remaining)
+                self._do_logout_and_show_qr(reason="qr_refresh")
+        # "pending_choice": user is mid-choice on phone — do not interrupt
 
     def _on_activated(self, device_id: str, action: str | None) -> None:
         try:

@@ -422,6 +422,15 @@ class ShareServer:
         with self._lock:
             self._login_tokens.pop(token_hash, None)
 
+    def login_token_remaining(self, token_hash: str) -> int:
+        """Remaining seconds on a login token (0 if expired or unknown)."""
+        with self._lock:
+            entry = self._login_tokens.get(token_hash)
+        if entry is None:
+            return 0
+        _, expiry, _, _ = entry
+        return max(0, int(expiry - time.time()))
+
     # ------------------------------------------------------------------
     # Private
     # ------------------------------------------------------------------

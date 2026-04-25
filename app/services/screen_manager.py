@@ -177,64 +177,187 @@ def _place_fullscreen(window, screen) -> None:
 
 
 def _map_touch_to_screen(screen_name: str) -> None:
-    """Map all pointer input devices to the control screen (X11 only).
+    """Map touch input to the control screen.
 
-    On a dual-display X11 setup the touchscreen covers the full virtual
-    desktop, so taps can land in the wrong window's coordinate space.
-    Mapping every slave pointer device to the control screen output fixes
-    the coordinate offset without needing to identify device names.
+    Handles all three Qt platform backends:
 
-    On Wayland the compositor routes touch to whichever surface owns the
-    output, so no manual mapping is required.
+    X11 (xcb)
+        Uses ``xinput --map-to-output`` to remap every slave pointer device
+        to the control screen's RandR output.  The touchscreen's coordinate
+        space is rescaled to that output, so taps always land in the right
+        window regardless of where the screen sits in the virtual desktop.
+
+    eglfs (Pi framebuffer, no display server)
+        No runtime mapping needed — the Qt evdev plugin reads the touch
+        device set in ``QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS``, which
+        run_dev.sh pre-configures from ``/sys/class/input``.
+
+    Wayland
+        The Wayland compositor routes touch to whichever surface owns the
+        physical output.  On correctly configured systems this is automatic.
+        If touch is still wrong, the compositor needs to be told which output
+        the touchscreen belongs to — see the WARNING log below for the fix.
     """
     import os  # noqa: PLC0415
 
-    # Wayland: compositor handles input routing automatically — nothing to do.
-    wayland = bool(os.environ.get("WAYLAND_DISPLAY") or
-                   os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland")
-    if wayland:
-        LOGGER.debug("Touch mapping: Wayland detected — compositor handles routing")
+    platform = os.environ.get("QT_QPA_PLATFORM", "")
+
+    # ── eglfs: no runtime mapping needed ─────────────────────────────────
+    if platform == "eglfs":
+        LOGGER.debug("Touch mapping: eglfs — device set via QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS")
         return
 
+    # ── Wayland ───────────────────────────────────────────────────────────
+    wayland = (
+        platform == "wayland"
+        or bool(os.environ.get("WAYLAND_DISPLAY"))
+        or os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+    )
+    if wayland:
+        _map_touch_wayland(screen_name)
+        return
+
+    # ── X11 (xcb): use xinput ─────────────────────────────────────────────
     if not shutil.which("xinput"):
-        LOGGER.debug("xinput not found — skipping touch mapping")
+        LOGGER.debug("Touch mapping: xinput not found (X11 only)")
         return
 
     try:
-        # List all devices in short format; slave pointer lines contain
-        # "slave  pointer" — these are all physical input devices that can
-        # produce pointer/touch events (mice, touchscreens, trackpads, etc.).
         result = subprocess.run(
             ["xinput", "list", "--short"],
             capture_output=True, text=True, timeout=5,
         )
 
+        # Collect candidate output names: Qt screen name + actual xrandr names.
+        output_names = [screen_name]
+        if shutil.which("xrandr"):
+            try:
+                xr = subprocess.run(
+                    ["xrandr", "--listmonitors"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for line in xr.stdout.splitlines():
+                    # Lines look like: " 0: +*HDMI-1 1920/527x1080/296+0+0  HDMI-1"
+                    parts = line.strip().split()
+                    if parts and "+" in parts[0]:
+                        name = parts[-1].strip()
+                        if name and name not in output_names:
+                            output_names.append(name)
+            except Exception:  # noqa: BLE001
+                pass
+
         mapped = 0
         for line in result.stdout.splitlines():
             if "slave  pointer" not in line:
                 continue
-            # Extract device id from "... id=N ..."
             try:
                 dev_id = line.split("id=")[1].split()[0].strip()
-                int(dev_id)  # validate it's a number
+                int(dev_id)
             except (IndexError, ValueError):
                 continue
 
-            r = subprocess.run(
-                ["xinput", "--map-to-output", dev_id, screen_name],
-                capture_output=True, timeout=5,
-            )
             dev_name = line.split("↳")[-1].split("id=")[0].strip()
-            if r.returncode == 0:
-                LOGGER.info("Touch: mapped %r (id=%s) → %s", dev_name, dev_id, screen_name)
-                mapped += 1
+            for out in output_names:
+                r = subprocess.run(
+                    ["xinput", "--map-to-output", dev_id, out],
+                    capture_output=True, timeout=5,
+                )
+                if r.returncode == 0:
+                    LOGGER.info("Touch: mapped %r (id=%s) → %s", dev_name, dev_id, out)
+                    mapped += 1
+                    break
             else:
-                LOGGER.debug("Touch: skipped %r (id=%s): %s", dev_name, dev_id, r.stderr.strip())
+                LOGGER.debug("Touch: could not map %r to any output %s", dev_name, output_names)
 
         if mapped == 0:
-            LOGGER.warning("Touch: no slave pointer devices found to map")
+            LOGGER.warning(
+                "Touch: no pointer devices mapped. "
+                "Run 'xinput list --short' on the Pi to check available devices."
+            )
         else:
-            LOGGER.info("Touch: mapped %d pointer device(s) → %s", mapped, screen_name)
+            LOGGER.info("Touch: mapped %d device(s) → control screen", mapped)
 
     except Exception as exc:  # noqa: BLE001
-        LOGGER.debug("Touch mapping skipped: %s", exc)
+        LOGGER.debug("Touch mapping error: %s", exc)
+
+
+def _map_touch_wayland(screen_name: str) -> None:
+    """Attempt touch-to-output mapping on Wayland.
+
+    wlroots-based compositors (Wayfire, labwc) route touch based on which
+    output the touch device is associated with.  We write a libinput device
+    quirk file that sets the ``OutputName`` hint — the compositor picks this
+    up on next launch.
+
+    If the quirk file cannot be written we log the manual steps instead.
+    """
+    import re  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    # Find touch devices via libinput (if available)
+    touch_devices: list[str] = []
+    if shutil.which("libinput"):
+        try:
+            r = subprocess.run(
+                ["libinput", "list-devices"],
+                capture_output=True, text=True, timeout=10,
+            )
+            current_device = ""
+            for line in r.stdout.splitlines():
+                if line.startswith("Device:"):
+                    current_device = line.split(":", 1)[1].strip()
+                elif "Capabilities:" in line and "touch" in line.lower() and current_device:
+                    touch_devices.append(current_device)
+                    current_device = ""
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not touch_devices:
+        LOGGER.warning(
+            "Touch mapping (Wayland): could not detect touch device. "
+            "To fix touch alignment, add to ~/.config/wayfire.ini:\n"
+            "  [input]\n"
+            "  touch_from_output = %s",
+            screen_name,
+        )
+        return
+
+    # Write ~/.local/share/libinput/local-overrides.quirks
+    # libinput picks this up without requiring root.
+    quirk_dir = Path.home() / ".local" / "share" / "libinput"
+    quirk_file = quirk_dir / "local-overrides.quirks"
+    try:
+        quirk_dir.mkdir(parents=True, exist_ok=True)
+        existing = quirk_file.read_text() if quirk_file.exists() else ""
+
+        # Build entries for each touch device
+        new_entries: list[str] = []
+        for dev_name in touch_devices:
+            safe_name = re.escape(dev_name)
+            entry = (
+                f"[Touch output mapping for {dev_name}]\n"
+                f"MatchName={dev_name}\n"
+                f"AttrOutputMappingHint={screen_name}\n"
+            )
+            if dev_name not in existing:
+                new_entries.append(entry)
+
+        if new_entries:
+            with quirk_file.open("a") as fh:
+                fh.write("\n" + "\n".join(new_entries))
+            LOGGER.info(
+                "Touch (Wayland): wrote libinput quirks for %d device(s) → %s. "
+                "Restart the compositor or reboot to apply.",
+                len(new_entries), screen_name,
+            )
+        else:
+            LOGGER.debug("Touch (Wayland): libinput quirks already present")
+
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "Touch (Wayland): could not write libinput quirks (%s). "
+            "Manual fix — add to ~/.config/wayfire.ini:\n"
+            "  [input]\n"
+            "  touch_from_output = %s",
+            exc, screen_name,
+        )

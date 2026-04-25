@@ -50,4 +50,22 @@ export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h2
 
 export PYTHONUNBUFFERED=1
 
+# ── Touch device (eglfs only) ──────────────────────────────────────────────
+# On eglfs (no display server) Qt reads touch from the device specified in
+# QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS.  Auto-detect the first touch-capable
+# input device so the touchscreen always maps to the control window.
+if [ "${QT_QPA_PLATFORM}" = "eglfs" ] && [ -z "${QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS:-}" ]; then
+    for sysfs_name in /sys/class/input/event*/device/name; do
+        dev_name="$(cat "${sysfs_name}" 2>/dev/null || true)"
+        case "$(echo "${dev_name}" | tr '[:upper:]' '[:lower:]')" in
+            *touch*|*goodix*|*ft5*|*waveshare*|*eeti*|*ilitek*)
+                event_node="$(basename "$(dirname "$(dirname "${sysfs_name}")")")"
+                export QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS="/dev/input/${event_node}"
+                echo "Touch device: /dev/input/${event_node} (${dev_name})"
+                break
+                ;;
+        esac
+    done
+fi
+
 exec "${PYTHON}" -m app.main "$@"
