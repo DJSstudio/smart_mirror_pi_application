@@ -161,7 +161,7 @@ Item {
                 // Auto-detect result
                 Rectangle {
                     visible: settingsController.screenAutoDetect
-                             && settingsController.autoScreenAssignment.available
+                             && settingsController.autoScreenAssignment.available === true
                     Layout.fillWidth: true
                     height: _assignCol.implicitHeight + 20
                     color: "#F0F7F0"

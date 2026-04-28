@@ -284,72 +284,181 @@ def _map_touch_to_screen(screen_name: str) -> None:
 def _map_touch_wayland(screen_name: str) -> None:
     """Map touch to the control output on Wayland — no reboot required.
 
-    Two-stage approach:
+    Detects the running compositor and uses the appropriate mechanism:
 
-    1. **Runtime** — try ``wf-msg`` (Wayfire IPC) to apply the mapping to the
-       *running* compositor immediately.  If it succeeds, touch is fixed right
-       now without any restart.
+    **labwc** (default on Raspberry Pi OS Bookworm+)
+        1. Write ``<device><mapToOutput>`` to ``~/.config/labwc/rc.xml``
+        2. Send ``SIGHUP`` to the labwc process to reload config instantly
 
-    2. **Persistent** — write ``[input-device:<name>]`` sections to
-       ``~/.config/wayfire.ini`` so the mapping survives compositor restarts
-       automatically.  This is a one-time write; future app launches skip it.
+    **Wayfire**
+        1. Runtime mapping via ``wf-msg`` IPC or Wayfire JSON socket
+        2. Persist ``[input-device:]`` section to ``~/.config/wayfire.ini``
+
+    Both paths take effect immediately without reboot.
     """
-    from pathlib import Path  # noqa: PLC0415
-
     touch_names = _find_touch_device_names()
     if not touch_names:
         LOGGER.warning(
-            "Touch (Wayland): no touch device found in /sys/class/input. "
-            "Run 'libinput list-devices' to find the device name, then add:\n"
-            "  [input-device:<device-name>]\n"
-            "  output = %s\n"
-            "to ~/.config/wayfire.ini",
-            screen_name,
+            "Touch (Wayland): no touch device found. "
+            "Run 'libinput list-devices' to verify available devices.",
         )
         return
 
-    # ── Stage 1: runtime via wf-msg (no reboot) ──────────────────────────
+    compositor = _detect_compositor()
+    LOGGER.info(
+        "Touch (Wayland): compositor=%s  devices=%s  target=%s",
+        compositor, touch_names, screen_name,
+    )
+
+    if compositor == "labwc":
+        _map_touch_labwc(touch_names, screen_name)
+    elif compositor == "wayfire":
+        _map_touch_wayfire(touch_names, screen_name)
+    else:
+        # Unknown compositor — try labwc first (Pi OS default), then wayfire
+        LOGGER.info("Touch: unknown compositor %r — trying labwc then wayfire", compositor)
+        if not _map_touch_labwc(touch_names, screen_name):
+            _map_touch_wayfire(touch_names, screen_name)
+
+
+def _detect_compositor() -> str:
+    """Return the name of the running Wayland compositor."""
+    for name in ("labwc", "wayfire", "sway", "weston", "kwin_wayland", "mutter"):
+        try:
+            r = subprocess.run(
+                ["pidof", name], capture_output=True, text=True, timeout=3,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return name
+        except Exception:  # noqa: BLE001
+            pass
+    return "unknown"
+
+
+# ── labwc ────────────────────────────────────────────────────────────────────
+
+def _map_touch_labwc(touch_names: list[str], screen_name: str) -> bool:
+    """Map touch to output on labwc: write rc.xml + SIGHUP (no reboot).
+
+    Returns True if the mapping was applied successfully.
+    """
+    import os                             # noqa: PLC0415
+    import signal as sig                  # noqa: PLC0415
+    import xml.etree.ElementTree as ET    # noqa: PLC0415
+    from pathlib import Path              # noqa: PLC0415
+
+    rc_xml = Path.home() / ".config" / "labwc" / "rc.xml"
+
+    # ── Stage 1: update rc.xml ───────────────────────────────────────────
+    if rc_xml.exists():
+        try:
+            tree = ET.parse(rc_xml)  # noqa: S314
+            root = tree.getroot()
+        except ET.ParseError as exc:
+            LOGGER.warning("Touch (labwc): could not parse %s: %s", rc_xml, exc)
+            return False
+    else:
+        rc_xml.parent.mkdir(parents=True, exist_ok=True)
+        root = ET.Element("labwc_config")
+        tree = ET.ElementTree(root)
+
+    # Find or create <libinput>
+    libinput_el = root.find("libinput")
+    if libinput_el is None:
+        libinput_el = ET.SubElement(root, "libinput")
+
+    changed = False
+    for name in touch_names:
+        # Check if device already has correct mapping
+        existing = None
+        for device_el in libinput_el.findall("device"):
+            if device_el.get("name") == name:
+                existing = device_el
+                break
+
+        if existing is not None:
+            mto = existing.find("mapToOutput")
+            if mto is not None and mto.text == screen_name:
+                continue  # Already correct
+            if mto is None:
+                mto = ET.SubElement(existing, "mapToOutput")
+            mto.text = screen_name
+            changed = True
+        else:
+            device_el = ET.SubElement(libinput_el, "device")
+            device_el.set("name", name)
+            mto = ET.SubElement(device_el, "mapToOutput")
+            mto.text = screen_name
+            changed = True
+
+    if changed:
+        ET.indent(tree, space="  ")
+        tree.write(str(rc_xml), xml_declaration=True, encoding="UTF-8")
+        LOGGER.info("Touch (labwc): wrote device mapping to %s", rc_xml)
+
+    # ── Stage 2: SIGHUP labwc to reload config immediately ───────────────
+    try:
+        r = subprocess.run(
+            ["pidof", "labwc"], capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            pid = int(r.stdout.strip().split()[0])
+            os.kill(pid, sig.SIGHUP)
+            LOGGER.info(
+                "Touch (labwc): sent SIGHUP to labwc (pid %d) — config reloaded, "
+                "touch mapped %s → %s",
+                pid, touch_names, screen_name,
+            )
+            return True
+        LOGGER.debug("Touch (labwc): labwc process not found for SIGHUP")
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Touch (labwc): SIGHUP failed: %s", exc)
+
+    return changed
+
+
+# ── Wayfire ──────────────────────────────────────────────────────────────────
+
+def _map_touch_wayfire(touch_names: list[str], screen_name: str) -> bool:
+    """Map touch to output on Wayfire: wf-msg IPC + wayfire.ini persistence.
+
+    Returns True if the runtime mapping succeeded.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
     runtime_ok = _wfmsg_map_touch(touch_names, screen_name)
 
-    # ── Stage 2: persist to wayfire.ini ──────────────────────────────────
+    # Persist to wayfire.ini
     wayfire_ini = Path.home() / ".config" / "wayfire.ini"
-    if not wayfire_ini.exists():
-        if not runtime_ok:
-            LOGGER.warning(
-                "Touch (Wayland): ~/.config/wayfire.ini not found and wf-msg "
-                "unavailable. Create the file and add:\n"
-                "  [input-device:%s]\n  output = %s",
-                touch_names[0], screen_name,
-            )
-        return
+    if wayfire_ini.exists():
+        try:
+            content = wayfire_ini.read_text()
+            new_sections: list[str] = []
+            for name in touch_names:
+                if f"[input-device:{name}]" not in content:
+                    new_sections.append(f"\n[input-device:{name}]\noutput = {screen_name}\n")
+            if new_sections:
+                with wayfire_ini.open("a") as fh:
+                    fh.write("".join(new_sections))
+                LOGGER.info(
+                    "Touch (Wayfire): persisted %d device section(s) to wayfire.ini",
+                    len(new_sections),
+                )
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Touch (Wayfire): could not update wayfire.ini: %s", exc)
+    elif not runtime_ok:
+        LOGGER.warning(
+            "Touch (Wayfire): ~/.config/wayfire.ini not found and wf-msg "
+            "unavailable. Create the file and add:\n"
+            "  [input-device:%s]\n  output = %s",
+            touch_names[0], screen_name,
+        )
 
-    try:
-        content = wayfire_ini.read_text()
-        new_sections: list[str] = []
-        for name in touch_names:
-            if f"[input-device:{name}]" not in content:
-                new_sections.append(f"\n[input-device:{name}]\noutput = {screen_name}\n")
-
-        if new_sections:
-            with wayfire_ini.open("a") as fh:
-                fh.write("".join(new_sections))
-            LOGGER.info(
-                "Touch (Wayland): persisted %d device section(s) to wayfire.ini → %s",
-                len(new_sections), screen_name,
-            )
-        else:
-            LOGGER.debug("Touch (Wayland): wayfire.ini already has device sections")
-
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.warning("Touch (Wayland): could not update wayfire.ini: %s", exc)
+    return runtime_ok
 
 
 def _wfmsg_map_touch(touch_names: list[str], screen_name: str) -> bool:
-    """Apply touch-to-output mapping at runtime via Wayfire IPC (wf-msg).
-
-    Returns True if at least one device was successfully mapped.
-    Falls back to the JSON socket if the ``wf-msg`` CLI is unavailable.
-    """
+    """Apply touch-to-output mapping via Wayfire IPC (wf-msg or socket)."""
     import json    # noqa: PLC0415
     import os      # noqa: PLC0415
     import socket  # noqa: PLC0415
@@ -357,15 +466,9 @@ def _wfmsg_map_touch(touch_names: list[str], screen_name: str) -> bool:
 
     mapped = 0
 
-    LOGGER.info(
-        "Touch (Wayland): attempting runtime map of %s → %s",
-        touch_names, screen_name,
-    )
-
-    # ── Try wf-msg CLI first (simpler) ───────────────────────────────────
+    # ── Try wf-msg CLI first ─────────────────────────────────────────────
     wf_msg = shutil.which("wf-msg")
     if wf_msg:
-        LOGGER.debug("Touch: wf-msg found at %s", wf_msg)
         for name in touch_names:
             try:
                 r = subprocess.run(
@@ -373,27 +476,26 @@ def _wfmsg_map_touch(touch_names: list[str], screen_name: str) -> bool:
                     capture_output=True, text=True, timeout=5,
                 )
                 if r.returncode == 0:
-                    LOGGER.info(
-                        "Touch (Wayland): runtime mapped %r → %s via wf-msg",
-                        name, screen_name,
-                    )
+                    LOGGER.info("Touch (Wayfire): runtime mapped %r → %s via wf-msg", name, screen_name)
                     mapped += 1
                 else:
-                    LOGGER.warning(
-                        "Touch (Wayland): wf-msg failed for %r (rc=%d): %s",
-                        name, r.returncode, r.stderr.strip(),
-                    )
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.debug("Touch: wf-msg exception for %r: %s", name, exc)
+                    LOGGER.debug("wf-msg: %s", r.stderr.strip())
+            except Exception:  # noqa: BLE001
+                pass
         if mapped:
             return True
-    else:
-        LOGGER.debug("Touch: wf-msg not in PATH")
 
-    # ── Try Wayfire JSON socket directly ─────────────────────────────────
-    socket_path = _find_wayfire_socket()
+    # ── Try Wayfire JSON socket ──────────────────────────────────────────
+    import glob  # noqa: PLC0415
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    socket_path = os.environ.get("WAYFIRE_SOCKET", "")
     if not socket_path:
-        LOGGER.debug("Touch (Wayland): Wayfire socket not found — wf-msg unavailable")
+        for path in sorted(glob.glob(f"{runtime_dir}/wayfire*.socket")):
+            if os.path.exists(path):
+                socket_path = path
+                break
+
+    if not socket_path:
         return False
 
     for name in touch_names:
@@ -411,42 +513,12 @@ def _wfmsg_map_touch(touch_names: list[str], screen_name: str) -> bool:
                     length = struct.unpack("<I", hdr)[0]
                     resp = json.loads(s.recv(length))
                     if resp.get("result") == "ok":
-                        LOGGER.info(
-                            "Touch (Wayland): runtime mapped %r → %s via IPC socket",
-                            name, screen_name,
-                        )
+                        LOGGER.info("Touch (Wayfire): runtime mapped %r → %s via socket", name, screen_name)
                         mapped += 1
         except Exception as exc:  # noqa: BLE001
-            LOGGER.debug("Touch (Wayland): IPC socket attempt failed: %s", exc)
+            LOGGER.debug("Touch (Wayfire): socket attempt failed: %s", exc)
 
     return mapped > 0
-
-
-def _find_wayfire_socket() -> str:
-    """Locate the Wayfire IPC socket path.
-
-    Checks in order:
-      1. ``$WAYFIRE_SOCKET`` environment variable
-      2. Glob ``$XDG_RUNTIME_DIR/wayfire-*.socket``
-      3. Glob ``/run/user/<uid>/wayfire-*.socket``
-
-    Returns the first existing path, or ``""`` if none found.
-    """
-    import glob  # noqa: PLC0415
-    import os    # noqa: PLC0415
-
-    explicit = os.environ.get("WAYFIRE_SOCKET", "")
-    if explicit and os.path.exists(explicit):
-        return explicit
-
-    # Scan runtime dir for any wayfire socket
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-    for path in sorted(glob.glob(f"{runtime_dir}/wayfire*.socket")):
-        if os.path.exists(path):
-            LOGGER.debug("Touch: found Wayfire socket at %s", path)
-            return path
-
-    return ""
 
 
 def _find_touch_device_names() -> list[str]:
