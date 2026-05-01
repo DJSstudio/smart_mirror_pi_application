@@ -155,7 +155,10 @@ class RecordingController(QObject):
         # UDP pipeline is already stable when the countdown ends.
         try:
             preview = self._camera.start_recording()
-            self._preview_source = preview.control_preview_url
+            # Skip the control-window preview — the user sees themselves on the
+            # mirror.  Omitting this eliminates an entire GStreamer H.264 decode
+            # pipeline, roughly halving the CPU/GPU load on the Pi and removing
+            # the main source of preview lag.
             self._warmup_mirror_url = preview.mirror_preview_url
             self._backend_label = preview.backend
         except Exception as exc:  # noqa: BLE001
@@ -276,7 +279,7 @@ class RecordingController(QObject):
 
     def _tick_countdown(self) -> None:
         # Detect camera crash during warm-up before countdown ends.
-        if self._preview_source and not self._camera.is_alive():
+        if self._camera.is_active() and not self._camera.is_alive():
             LOGGER.warning("Camera process died during countdown warm-up")
             self._cd_timer.stop()
             self._preview_source = ""

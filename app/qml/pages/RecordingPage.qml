@@ -78,13 +78,12 @@ Item {
                 count: recordingController.countdown
             }
 
-            // Idle placeholder
+            // Idle placeholder — shown before recording starts
             ColumnLayout {
                 anchors.centerIn: parent
                 visible: !recordingController.isRecording
                          && !recordingController.hasReview
                          && recordingController.countdown === 0
-                         && recordingController.previewSource.length === 0
                 spacing: 14
 
                 Rectangle {
@@ -102,7 +101,7 @@ Item {
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "Camera preview will appear here"
+                    text: "Press Start to begin recording"
                     font.pixelSize: 16
                     color: "#6B635C"
                 }
@@ -114,6 +113,41 @@ Item {
                           : "No camera detected"
                     font.pixelSize: 12
                     color: "#4A4540"
+                }
+            }
+
+            // "Look at the mirror" prompt — shown during countdown and recording
+            ColumnLayout {
+                anchors.centerIn: parent
+                visible: (recordingController.isRecording || recordingController.countdown > 0)
+                         && !recordingController.hasReview
+                spacing: 18
+
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    width: 80; height: 80; radius: 999
+                    color: "#1C1917"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "🪞"
+                        font.pixelSize: 36
+                    }
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Look at the mirror to see yourself"
+                    font.pixelSize: 20
+                    font.weight: Font.Medium
+                    color: "#C4956A"
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Live preview is on the mirror display"
+                    font.pixelSize: 14
+                    color: "#6B635C"
                 }
             }
 
