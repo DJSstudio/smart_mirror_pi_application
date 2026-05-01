@@ -23,29 +23,47 @@ Item {
             }
         }
 
-        // ── Local preview (silent) ───────────────────────────────────
-        MediaSurface {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            primarySource: playbackService ? playbackService.primarySource : ""
-            primaryLabel: playbackService ? playbackService.primaryLabel : ""
-            muted: false
-            looping: true
-        }
-
-        // ── Mirror status ────────────────────────────────────────────
+        // ── Mirror info panel (video plays on mirror only) ────────────
         Rectangle {
             Layout.fillWidth: true
-            height: 38
-            radius: 10
-            color: "#e8e0da"
+            Layout.fillHeight: true
+            radius: 20
+            color: "#0D0B09"
+            border.width: 1
+            border.color: "#1C1917"
 
-            Text {
-                anchors { fill: parent; leftMargin: 14 }
-                verticalAlignment: Text.AlignVCenter
-                text: "Mirror is playing this video on the secondary display."
-                font.pixelSize: 13
-                color: "#7a746e"
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 18
+
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    width: 80; height: 80; radius: 999
+                    color: "#1C1917"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "🪞"
+                        font.pixelSize: 36
+                    }
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Video is playing on the mirror"
+                    font.pixelSize: 20
+                    font.weight: Font.Medium
+                    color: "#C4956A"
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: playbackService && playbackService.primaryLabel.length > 0
+                          ? playbackService.primaryLabel
+                          : ""
+                    font.pixelSize: 14
+                    color: "#6B635C"
+                }
             }
         }
 

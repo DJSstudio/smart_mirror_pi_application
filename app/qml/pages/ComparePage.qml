@@ -71,79 +71,68 @@ Item {
             }
         }
 
-        // ── Split preview ────────────────────────────────────────────
-        ColumnLayout {
+        // ── Hidden players for scrub/play/pause control ────────────────
+        // Video renders on the mirror only — these players provide position
+        // tracking for the scrub bar without decoding to a visible surface.
+        MediaPlayer {
+            id: leftPlayer
+            source: playbackService ? playbackService.primarySource : ""
+            loops: MediaPlayer.Infinite
+            audioOutput: AudioOutput { muted: true }
+            Component.onCompleted: play()
+        }
+
+        MediaPlayer {
+            id: rightPlayer
+            source: playbackService ? playbackService.secondarySource : ""
+            loops: MediaPlayer.Infinite
+            audioOutput: AudioOutput { muted: true }
+            Component.onCompleted: play()
+        }
+
+        // ── Mirror info panel (comparison plays on mirror only) ──────
+        Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 12
+            radius: 20
+            color: "#0D0B09"
+            border.width: 1
+            border.color: "#1C1917"
 
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                radius: 16
-                color: "#0d0b09"
-                border.color: "#1c1814"
-                border.width: 1
-                clip: true
-
-                MediaPlayer {
-                    id: leftPlayer
-                    source: playbackService ? playbackService.primarySource : ""
-                    loops: MediaPlayer.Infinite
-                    videoOutput: leftOutput
-                    audioOutput: AudioOutput { muted: true }
-                    Component.onCompleted: play()
-                }
-
-                VideoOutput {
-                    id: leftOutput
-                    anchors.fill: parent
-                    fillMode: root.fillCrop
-                        ? VideoOutput.PreserveAspectCrop
-                        : VideoOutput.PreserveAspectFit
-                }
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 18
 
                 Rectangle {
-                    anchors { left: parent.left; top: parent.top; margins: 10 }
-                    radius: 999; color: "#aa0a0907"
-                    width: lblLeft.implicitWidth + 14; height: 24
-                    Text { id: lblLeft; anchors.centerIn: parent; text: playbackService ? playbackService.primaryLabel : ""
-                           font.pixelSize: 12; font.weight: Font.DemiBold; color: "#f0ebe5" }
-                }
-            }
+                    Layout.alignment: Qt.AlignHCenter
+                    width: 80; height: 80; radius: 999
+                    color: "#1C1917"
 
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                radius: 16
-                color: "#0d0b09"
-                border.color: "#1c1814"
-                border.width: 1
-                clip: true
-
-                MediaPlayer {
-                    id: rightPlayer
-                    source: playbackService ? playbackService.secondarySource : ""
-                    loops: MediaPlayer.Infinite
-                    videoOutput: rightOutput
-                    audioOutput: AudioOutput { muted: true }
-                    Component.onCompleted: play()
+                    Text {
+                        anchors.centerIn: parent
+                        text: "🪞"
+                        font.pixelSize: 36
+                    }
                 }
 
-                VideoOutput {
-                    id: rightOutput
-                    anchors.fill: parent
-                    fillMode: root.fillCrop
-                        ? VideoOutput.PreserveAspectCrop
-                        : VideoOutput.PreserveAspectFit
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Comparison is playing on the mirror"
+                    font.pixelSize: 20
+                    font.weight: Font.Medium
+                    color: "#C4956A"
                 }
 
-                Rectangle {
-                    anchors { left: parent.left; top: parent.top; margins: 10 }
-                    radius: 999; color: "#aa0a0907"
-                    width: lblRight.implicitWidth + 14; height: 24
-                    Text { id: lblRight; anchors.centerIn: parent; text: playbackService ? playbackService.secondaryLabel : ""
-                           font.pixelSize: 12; font.weight: Font.DemiBold; color: "#f0ebe5" }
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: {
+                        var l = playbackService ? playbackService.primaryLabel : ""
+                        var r = playbackService ? playbackService.secondaryLabel : ""
+                        if (l.length > 0 && r.length > 0) return l + "  vs  " + r
+                        return "Side-by-side comparison"
+                    }
+                    font.pixelSize: 14
+                    color: "#6B635C"
                 }
             }
         }
