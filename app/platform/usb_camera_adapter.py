@@ -35,12 +35,10 @@ class UsbCameraAdapter(BaseCameraAdapter):
     ) -> CameraPreview:
         self.stop(discard=True)
         device = _resolve_device(device_hint)
-        ctrl_port = self.allocate_udp_port()
         mir_port = self.allocate_udp_port()
-        cap_path = work_dir / f"capture_{ctrl_port}.mp4"
+        cap_path = work_dir / f"capture_{mir_port}.mp4"
 
         tee_targets = "|".join([
-            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{ctrl_port}?pkt_size=1316",
             f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{mir_port}?pkt_size=1316",
             f"[f=mp4:movflags=+faststart:onfail=ignore]{cap_path}",
         ])
@@ -48,7 +46,7 @@ class UsbCameraAdapter(BaseCameraAdapter):
         self._capture_path = cap_path
         self._capture_fmt = "mp4"
         return CameraPreview(
-            control_preview_url=_udp(ctrl_port),
+            control_preview_url="",
             mirror_preview_url=_udp(mir_port),
             backend=self.backend_name,
             recording=True,
@@ -66,18 +64,16 @@ class UsbCameraAdapter(BaseCameraAdapter):
     ) -> CameraPreview:
         self.stop(discard=True)
         device = _resolve_device(device_hint)
-        ctrl_port = self.allocate_udp_port()
         mir_port = self.allocate_udp_port()
 
-        tee_targets = "|".join([
-            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{ctrl_port}?pkt_size=1316",
-            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{mir_port}?pkt_size=1316",
-        ])
+        tee_targets = (
+            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{mir_port}?pkt_size=1316"
+        )
         self._spawn(_ffmpeg_cmd(device, width, height, fps, bitrate, tee_targets))
         self._capture_path = None
         self._capture_fmt = None
         return CameraPreview(
-            control_preview_url=_udp(ctrl_port),
+            control_preview_url="",
             mirror_preview_url=_udp(mir_port),
             backend=self.backend_name,
             recording=False,
@@ -274,14 +270,6 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-tune", "zerolatency",
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
-        # Force every frame to be an I-frame (gop=1).  With inter-frame
-        # prediction (P/B frames), a single lost UDP packet corrupts every
-        # dependent frame until the next keyframe — causing seconds of
-        # mosaic artefacts.  With gop=1 every frame is self-contained, so
-        # a dropped packet glitches exactly one frame (~33 ms) instead of
-        # cascading.  Total bitrate stays the same; file size is unaffected
-        # because -b:v still caps the throughput.
-        "-g", "1",
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         # Minimize muxing latency: flush every packet, no mux buffering.

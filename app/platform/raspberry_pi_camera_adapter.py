@@ -53,12 +53,10 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         device_hint: str | None,
     ) -> CameraPreview:
         self.stop(discard=True)
-        ctrl_port = self.allocate_udp_port()
         mir_port = self.allocate_udp_port()
-        cap_path = work_dir / f"capture_{os.getpid()}_{ctrl_port}.h264"
+        cap_path = work_dir / f"capture_{os.getpid()}_{mir_port}.h264"
 
         tee_targets = "|".join([
-            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{ctrl_port}?pkt_size=1316",
             f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{mir_port}?pkt_size=1316",
             f"[f=h264:onfail=ignore]{cap_path}",
         ])
@@ -69,7 +67,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         self._capture_path = cap_path
         self._capture_fmt = "h264"
         return CameraPreview(
-            control_preview_url=_udp(ctrl_port),
+            control_preview_url="",
             mirror_preview_url=_udp(mir_port),
             backend=self.backend_name,
             recording=True,
@@ -86,13 +84,11 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         device_hint: str | None,
     ) -> CameraPreview:
         self.stop(discard=True)
-        ctrl_port = self.allocate_udp_port()
         mir_port = self.allocate_udp_port()
 
-        tee_targets = "|".join([
-            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{ctrl_port}?pkt_size=1316",
-            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{mir_port}?pkt_size=1316",
-        ])
+        tee_targets = (
+            f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{mir_port}?pkt_size=1316"
+        )
         self._spawn(
             rpicam_args=_rpicam_cmd(width, height, fps, bitrate),
             ffmpeg_args=_ffmpeg_tee_cmd(tee_targets),
@@ -100,7 +96,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         self._capture_path = None
         self._capture_fmt = None
         return CameraPreview(
-            control_preview_url=_udp(ctrl_port),
+            control_preview_url="",
             mirror_preview_url=_udp(mir_port),
             backend=self.backend_name,
             recording=False,
@@ -176,11 +172,6 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--framerate", str(fps),
         "--codec", "h264",
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
-        # Force every frame to be an IDR (intra=1).  This makes the UDP
-        # preview stream fully intra-frame so a lost packet can never
-        # corrupt more than a single frame — eliminating the cascading
-        # mosaic artefacts seen during live preview.
-        "--intra", "1",
         "--bitrate", str(bitrate),
         "-o", "-",
     ]
