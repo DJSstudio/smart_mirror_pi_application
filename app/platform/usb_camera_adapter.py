@@ -284,12 +284,15 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-g", "1",
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
+        # Minimize muxing latency: flush every packet, no mux buffering.
+        "-flush_packets", "1",
+        "-max_delay", "0",
         "-f", "tee", tee,
     ]
 
 
 def _udp(port: int) -> str:
-    # fifo_size: sender-side queue in bytes.  5 MB was the old value —
-    # that let ffmpeg buffer ~5 s of video before dropping, adding visible
-    # latency.  512 KB keeps the pipeline moving with only ~0.5 s headroom.
-    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=524288"
+    # fifo_size: sender-side queue in bytes.  256 KB gives ~0.15 s of
+    # headroom at 12 Mbps — low enough to keep latency tight, enough to
+    # absorb brief CPU spikes on the Pi.
+    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=262144"

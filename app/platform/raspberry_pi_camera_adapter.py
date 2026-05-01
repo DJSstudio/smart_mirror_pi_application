@@ -192,16 +192,25 @@ def _ffmpeg_tee_cmd(targets: str) -> list[str]:
         "-hide_banner", "-loglevel", "warning",
         "-fflags", "nobuffer",
         "-flags", "low_delay",
+        "-probesize", "32",
+        "-analyzeduration", "0",
         "-f", "h264",
         "-i", "pipe:0",
         "-an", "-c:v", "copy",
         "-map", "0:v:0",
+        # Minimize muxing latency: flush every packet, no mux buffering.
+        "-flush_packets", "1",
+        "-max_delay", "0",
         "-f", "tee", targets,
     ]
 
 
 def _udp(port: int) -> str:
-    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=524288"
+    # fifo_size: sender-side queue in bytes.  Smaller = lower worst-case
+    # latency (frames are flushed sooner).  262144 (256 KB) gives ~0.15 s
+    # of headroom at 12 Mbps — tight enough to keep latency low but enough
+    # to absorb brief scheduling jitter on the Pi.
+    return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=262144"
 
 
 def _terminate(proc: subprocess.Popen, label: str) -> None:
