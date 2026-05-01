@@ -222,29 +222,13 @@ def _map_touch_to_screen(screen_name: str) -> None:
         LOGGER.debug("Touch mapping: xinput not found (X11 only)")
         return
 
+    _TOUCH_KEYWORDS_X11 = ("touch", "goodix", "ft5", "eeti", "ilitek", "waveshare")
+
     try:
         result = subprocess.run(
             ["xinput", "list", "--short"],
             capture_output=True, text=True, timeout=5,
         )
-
-        # Collect candidate output names: Qt screen name + actual xrandr names.
-        output_names = [screen_name]
-        if shutil.which("xrandr"):
-            try:
-                xr = subprocess.run(
-                    ["xrandr", "--listmonitors"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                for line in xr.stdout.splitlines():
-                    # Lines look like: " 0: +*HDMI-1 1920/527x1080/296+0+0  HDMI-1"
-                    parts = line.strip().split()
-                    if parts and "+" in parts[0]:
-                        name = parts[-1].strip()
-                        if name and name not in output_names:
-                            output_names.append(name)
-            except Exception:  # noqa: BLE001
-                pass
 
         mapped = 0
         for line in result.stdout.splitlines():
@@ -257,25 +241,33 @@ def _map_touch_to_screen(screen_name: str) -> None:
                 continue
 
             dev_name = line.split("↳")[-1].split("id=")[0].strip()
-            for out in output_names:
-                r = subprocess.run(
-                    ["xinput", "--map-to-output", dev_id, out],
-                    capture_output=True, timeout=5,
-                )
-                if r.returncode == 0:
-                    LOGGER.info("Touch: mapped %r (id=%s) → %s", dev_name, dev_id, out)
-                    mapped += 1
-                    break
+
+            # Only map touch devices — skip mice, keyboards, virtual pointers.
+            if not any(k in dev_name.lower() for k in _TOUCH_KEYWORDS_X11):
+                continue
+
+            # Use the Qt screen name directly — do NOT fall back to other
+            # xrandr outputs, as that can map touch to the mirror screen.
+            r = subprocess.run(
+                ["xinput", "--map-to-output", dev_id, screen_name],
+                capture_output=True, timeout=5,
+            )
+            if r.returncode == 0:
+                LOGGER.info("Touch: mapped %r (id=%s) → %s", dev_name, dev_id, screen_name)
+                mapped += 1
             else:
-                LOGGER.debug("Touch: could not map %r to any output %s", dev_name, output_names)
+                LOGGER.warning(
+                    "Touch: xinput --map-to-output %s %s failed (rc=%d)",
+                    dev_id, screen_name, r.returncode,
+                )
 
         if mapped == 0:
             LOGGER.warning(
-                "Touch: no pointer devices mapped. "
+                "Touch: no touch devices mapped. "
                 "Run 'xinput list --short' on the Pi to check available devices."
             )
         else:
-            LOGGER.info("Touch: mapped %d device(s) → control screen", mapped)
+            LOGGER.info("Touch: mapped %d touch device(s) → %s", mapped, screen_name)
 
     except Exception as exc:  # noqa: BLE001
         LOGGER.debug("Touch mapping error: %s", exc)
