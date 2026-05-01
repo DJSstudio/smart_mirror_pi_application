@@ -270,10 +270,10 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-tune", "zerolatency",
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
-        # Keyframe every 15 frames (0.5 s at 30 fps).  Most frames are
+        # Keyframe every 0.5 s worth of frames.  Most frames are
         # lightweight P-frames (easy to decode), while keyframes arrive
         # often enough that any UDP glitch resolves within 0.5 s.
-        "-g", "15",
+        "-g", str(max(fps // 2, 1)),
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         # Minimize muxing latency: flush every packet, no mux buffering.

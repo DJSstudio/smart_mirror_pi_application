@@ -122,6 +122,7 @@ def main() -> int:
         camera_service=camera_service,
         mirror_display=mirror_display,
         settings=settings,
+        paths=paths,
     )
     # Auto-cleanup: delete video data for sessions idle > threshold.
     # Runs once at startup (before Qt) then every 30 min via QTimer below.

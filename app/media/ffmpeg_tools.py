@@ -121,3 +121,35 @@ def generate_thumbnail(src: Path, dst: Path, seek: float = 1.0) -> Path:
 def safe_unlink(path: Path | None) -> None:
     if path:
         path.unlink(missing_ok=True)
+
+
+def combine_vstack(top: Path, bottom: Path, dst: Path) -> None:
+    """Stack two videos vertically into a single MP4 file.
+
+    Produces one H.264 stream so the mirror only does ONE decode instead
+    of two — critical for Pi 4 which has just one hardware H.264 decoder.
+    Audio is dropped (compare playback is silent).  Output duration
+    matches the shorter input.
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        _require("ffmpeg"),
+        "-hide_banner", "-loglevel", "warning",
+        "-i", str(top),
+        "-i", str(bottom),
+        "-filter_complex",
+        # Force both inputs to width 1280; height auto-computed (rounded
+        # to even number).  vstack requires equal widths.
+        "[0:v]scale=1280:-2[top];"
+        "[1:v]scale=1280:-2[bot];"
+        "[top][bot]vstack=inputs=2[v]",
+        "-map", "[v]",
+        "-an",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-shortest",
+        "-y", str(dst),
+    ])

@@ -172,11 +172,11 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--framerate", str(fps),
         "--codec", "h264",
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
-        # Keyframe every 15 frames (0.5 s at 30 fps).  Balances decode load
+        # Keyframe every 0.5 s worth of frames.  Balances decode load
         # (most frames are lightweight P-frames) with fast error recovery
         # (any glitch resolves within 0.5 s).  All-I-frame (--intra 1) was
-        # too heavy for real-time software/hardware decode at 1080p.
-        "--intra", "15",
+        # too heavy for real-time decode.
+        "--intra", str(max(fps // 2, 1)),
         "--bitrate", str(bitrate),
         "-o", "-",
     ]

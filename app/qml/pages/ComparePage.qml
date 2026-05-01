@@ -1,5 +1,6 @@
-// Compare page — top/bottom synchronized playback of two videos.
-// Both the control screen (silent) and the mirror (full screen split) are active.
+// Compare page — plays a single pre-combined vstacked file on the mirror.
+// Combine happens in PlaybackService.open_compare() so the Pi only does ONE
+// H.264 decode instead of two (its hardware decoder is single-instance).
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -9,49 +10,18 @@ import "../components"
 Item {
     id: root
 
-    // Sync timer: every 150 ms align the two players
-    Timer {
-        id: syncTimer
-        interval: 150
-        repeat: true
-        running: !paused
-        onTriggered: _syncPlayers()
-    }
-
     property bool paused: false
     property bool fillCrop: settingsController ? settingsController.compareFillCrop : true
 
-    // ── Helpers ────────────────────────────────────────────────────
-    function _syncPlayers() {
-        if (!leftPlayer.playing && !paused) {
-            leftPlayer.play()
-            rightPlayer.play()
-            return
-        }
-        var diff = Math.abs(leftPlayer.position - rightPlayer.position)
-        if (diff > 200) {
-            rightPlayer.position = leftPlayer.position
-        }
-    }
-
     function _togglePlay() {
         paused = !paused
-        if (paused) {
-            leftPlayer.pause()
-            rightPlayer.pause()
-        } else {
-            leftPlayer.play()
-            rightPlayer.play()
-        }
+        if (paused) player.pause(); else player.play()
     }
 
     function _seek(deltaMs) {
-        var pos = Math.max(0, leftPlayer.position + deltaMs)
-        leftPlayer.position = pos
-        rightPlayer.position = pos
+        var pos = Math.max(0, player.position + deltaMs)
+        player.position = pos
     }
-
-    // ──────────────────────────────────────────────────────────────
 
     ColumnLayout {
         anchors { fill: parent; margins: 24 }
@@ -61,36 +31,26 @@ Item {
         PageHeader {
             Layout.fillWidth: true
             title: "Compare Looks"
-            subtitle: "Synchronized playback  ·  Mirror is showing left/right comparison."
+            subtitle: "Synchronized playback  ·  Mirror is showing top/bottom comparison."
             onBackClicked: {
-                syncTimer.stop()
-                leftPlayer.stop()
-                rightPlayer.stop()
+                player.stop()
                 if (playbackService) playbackService.close_active()
                 if (appController) appController.showGallery()
             }
         }
 
-        // ── Hidden players for scrub/play/pause control ────────────────
-        // Video renders on the mirror only — these players provide position
-        // tracking for the scrub bar without decoding to a visible surface.
+        // ── Hidden player for scrub/play/pause control ────────────────
+        // The actual video renders only on the mirror.  This player tracks
+        // position so the scrub bar and ±10s controls can drive playback.
         MediaPlayer {
-            id: leftPlayer
+            id: player
             source: playbackService ? playbackService.primarySource : ""
             loops: MediaPlayer.Infinite
             audioOutput: AudioOutput { muted: true }
-            Component.onCompleted: play()
+            onSourceChanged: { if (source.toString().length > 0) play() }
         }
 
-        MediaPlayer {
-            id: rightPlayer
-            source: playbackService ? playbackService.secondarySource : ""
-            loops: MediaPlayer.Infinite
-            audioOutput: AudioOutput { muted: true }
-            Component.onCompleted: play()
-        }
-
-        // ── Mirror info panel (comparison plays on mirror only) ──────
+        // ── Mirror info panel ────────────────────────────────────────
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -99,8 +59,63 @@ Item {
             border.width: 1
             border.color: "#1C1917"
 
+            // Preparing state: ffmpeg is combining the two clips
             ColumnLayout {
                 anchors.centerIn: parent
+                visible: playbackService && playbackService.comparePending
+                spacing: 18
+
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    running: parent.visible
+                    width: 56; height: 56
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Preparing comparison…"
+                    font.pixelSize: 18
+                    color: "#C4956A"
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Combining the two clips into one stream for smooth playback."
+                    font.pixelSize: 13
+                    color: "#6B635C"
+                }
+            }
+
+            // Error state
+            ColumnLayout {
+                anchors.centerIn: parent
+                visible: playbackService && playbackService.compareError.length > 0
+                spacing: 12
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "⚠"
+                    font.pixelSize: 48
+                    color: "#FF6B6B"
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: playbackService ? playbackService.compareError : ""
+                    font.pixelSize: 14
+                    color: "#FF9999"
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    Layout.maximumWidth: 480
+                }
+            }
+
+            // Ready state: show "playing on mirror" hint
+            ColumnLayout {
+                anchors.centerIn: parent
+                visible: playbackService
+                         && !playbackService.comparePending
+                         && playbackService.compareError.length === 0
                 spacing: 18
 
                 Rectangle {
@@ -128,8 +143,8 @@ Item {
                     text: {
                         var l = playbackService ? playbackService.primaryLabel : ""
                         var r = playbackService ? playbackService.secondaryLabel : ""
-                        if (l.length > 0 && r.length > 0) return l + "  vs  " + r
-                        return "Side-by-side comparison"
+                        if (l.length > 0 && r.length > 0) return l + "  /  " + r
+                        return "Top vs Bottom"
                     }
                     font.pixelSize: 14
                     color: "#6B635C"
@@ -140,14 +155,12 @@ Item {
         // ── Scrub bar ────────────────────────────────────────────────
         Slider {
             Layout.fillWidth: true
+            enabled: playbackService && !playbackService.comparePending
             from: 0
-            to: leftPlayer.duration > 0 ? leftPlayer.duration : 1
-            value: leftPlayer.position
+            to: player.duration > 0 ? player.duration : 1
+            value: player.position
             stepSize: 500
-            onMoved: {
-                leftPlayer.position = value
-                rightPlayer.position = value
-            }
+            onMoved: player.position = value
 
             background: Rectangle {
                 x: parent.leftPadding
@@ -180,12 +193,14 @@ Item {
                 text: "−10s"
                 variant: "secondary"
                 implicitWidth: 72
+                enabled: playbackService && !playbackService.comparePending
                 onClicked: root._seek(-10000)
             }
 
             AppButton {
                 Layout.fillWidth: true
                 text: root.paused ? "▶  Play" : "⏸  Pause"
+                enabled: playbackService && !playbackService.comparePending
                 onClicked: root._togglePlay()
             }
 
@@ -193,6 +208,7 @@ Item {
                 text: "+10s"
                 variant: "secondary"
                 implicitWidth: 72
+                enabled: playbackService && !playbackService.comparePending
                 onClicked: root._seek(10000)
             }
 
@@ -210,9 +226,7 @@ Item {
                 text: "✕  Close"
                 variant: "secondary"
                 onClicked: {
-                    syncTimer.stop()
-                    leftPlayer.stop()
-                    rightPlayer.stop()
+                    player.stop()
                     if (playbackService) playbackService.close_active()
                     if (appController) appController.showGallery()
                 }
