@@ -43,10 +43,11 @@ if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then
     export GST_GL_PLATFORM="${GST_GL_PLATFORM:-egl}"
 fi
 
-# Prefer the software H264 decoder (avdec_h264, rank 256 = PRIMARY) over the
-# Pi hardware V4L2M2M path (v4l2h264dec, demoted to 50) which crashes on
-# -tune zerolatency streams.
-export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50}"
+# Prefer the Pi hardware H264 decoder (v4l2h264dec) over software decode
+# (avdec_h264).  The hardware decoder handles 1080p@30fps with near-zero CPU
+# cost.  Previously demoted because it crashed on all-I-frame zerolatency
+# streams, but with normal GOP (--intra 15 / -g 15) it works reliably.
+export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-v4l2h264dec:512,avdec_h264:256}"
 
 export PYTHONUNBUFFERED=1
 
