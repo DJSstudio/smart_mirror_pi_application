@@ -58,7 +58,12 @@ if [ -z "${GST_PLUGIN_FEATURE_RANK:-}" ]; then
             echo "Detected Pi 4 — using hardware H.264 decoder"
             ;;
         *"Raspberry Pi 5"*)
-            echo "Detected Pi 5 — using software H.264 decoder (no V4L2M2M on Pi 5)"
+            # Explicitly disable any V4L2 H.264 elements and force software
+            # decode.  Pi 5 has no V4L2M2M H.264 hardware, but a partial v4l2
+            # element can still be auto-plugged and produce green/garbage
+            # output.  Pin avdec_h264 high and v4l2h264dec to 0.
+            export GST_PLUGIN_FEATURE_RANK="v4l2h264dec:0,avdec_h264:512"
+            echo "Detected Pi 5 — forcing software H.264 decoder (avdec_h264)"
             ;;
         *)
             echo "Non-Pi platform (${PI_MODEL:-unknown}) — using GStreamer defaults"

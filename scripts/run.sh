@@ -54,6 +54,11 @@ if [ -z "${GST_PLUGIN_FEATURE_RANK:-}" ]; then
         *"Raspberry Pi 4"*)
             export GST_PLUGIN_FEATURE_RANK="v4l2h264dec:512,avdec_h264:256"
             ;;
+        *"Raspberry Pi 5"*)
+            # Explicit software decode on Pi 5 — V4L2 elements can be
+            # auto-plugged and produce green output.
+            export GST_PLUGIN_FEATURE_RANK="v4l2h264dec:0,avdec_h264:512"
+            ;;
     esac
 fi
 

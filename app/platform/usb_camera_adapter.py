@@ -273,12 +273,17 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         # (green) output on H.264 High profile, so do not override.
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
-        # Keyframe every ~0.25 s.  Short enough that the mirror gets its
-        # first decodable frame quickly after the camera starts (avoids
-        # the "black screen before video appears" delay), and that any
-        # UDP glitch resolves in under 250 ms.  Most frames are still
-        # lightweight P-frames so decode load stays low.
-        "-g", str(max(fps // 4, 1)),
+        # Explicit color metadata.  Without these, libx264 ultrafast +
+        # zerolatency emits a stream with ambiguous color tagging; some
+        # GStreamer decoder paths then default to wrong color matrix and
+        # render the entire frame green.
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
+        "-color_range", "tv",
+        # Keyframe every ~0.5 s.  libx264 ultrafast can produce malformed
+        # bitstreams when the GOP is very short — keep this conservative.
+        "-g", str(max(fps // 2, 1)),
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         # Minimize muxing latency: flush every packet, no mux buffering.
