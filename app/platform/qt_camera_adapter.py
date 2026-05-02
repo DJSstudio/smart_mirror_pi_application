@@ -85,8 +85,11 @@ class QtCameraAdapter(BaseCameraAdapter):
         self._capture_path = None
 
         if discard:
-            if cap_path is not None:
-                cap_path.unlink(missing_ok=True)
+            # Qt may have written to a different path than we requested
+            # (rare, but possible on some platforms) — unlink both.
+            for p in {cap_path, recorded}:
+                if p is not None:
+                    p.unlink(missing_ok=True)
             return None
 
         # Use the path the session reports actually got written, falling back

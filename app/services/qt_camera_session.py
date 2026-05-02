@@ -18,9 +18,11 @@ import threading
 from PySide6.QtCore import (
     QEventLoop,
     QObject,
+    QSize,
     QThread,
     QTimer,
     Property,
+    Qt,
     Signal,
     Slot,
     QUrl,
@@ -30,7 +32,6 @@ from PySide6.QtMultimedia import (
     QCameraFormat,
     QMediaCaptureSession,
     QMediaDevices,
-    QMediaFormat,
     QMediaRecorder,
     QVideoSink,
 )
@@ -42,6 +43,9 @@ class QtCameraSession(QObject):
     """Single shared capture session, lifetime-managed by main.py."""
 
     changed = Signal()
+    # Internal: bg threads emit this to ask the main thread to run stop().
+    # QueuedConnection guarantees delivery on the receiver's thread.
+    _stopRequest = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -53,6 +57,10 @@ class QtCameraSession(QObject):
         # The QML VideoOutput passes us its native QVideoSink via attachSink().
         # We hold a reference so it survives across mode changes.
         self._attached_sink: QVideoSink | None = None
+        # Cross-thread stop coordination
+        self._stop_done = threading.Event()
+        self._stop_result: Path | None = None
+        self._stopRequest.connect(self._handle_stop_request, Qt.ConnectionType.QueuedConnection)
 
     # ------------------------------------------------------------------
     # QML-callable wiring
@@ -114,53 +122,62 @@ class QtCameraSession(QObject):
     ) -> Path:
         """Open the camera, attach a recorder, begin both preview and recording.
 
-        Returns the path that the recording will be written to (Qt may add a
-        container extension; we use the path as-is).
+        Recorder is configured minimally: only output location and quality.
+        Earlier explicit MPEG4 + H264 + bitrate triggered GStreamer pipeline
+        assembly failures (filesink ASYNC READY PLAYING, videoConvert
+        getPipeline failed) on the Pi 5 + IMX335 + PySide6 combination.
+        Letting Qt pick defaults that match the camera's source format is
+        more reliable.
         """
         self.start_preview(device_hint, width, height, fps)
 
         self._recorder = QMediaRecorder(self)
         self._capture.setRecorder(self._recorder)
-
-        fmt = QMediaFormat()
-        fmt.setFileFormat(QMediaFormat.FileFormat.MPEG4)
-        fmt.setVideoCodec(QMediaFormat.VideoCodec.H264)
-        self._recorder.setMediaFormat(fmt)
         self._recorder.setQuality(QMediaRecorder.Quality.HighQuality)
-        self._recorder.setVideoBitRate(bitrate)
         self._recorder.setOutputLocation(QUrl.fromLocalFile(str(output_path)))
+
+        # Hook recorder error signal so we surface failures instead of
+        # silently producing zero-byte files.
+        self._recorder.errorOccurred.connect(self._on_recorder_error)
 
         self._recording_path = output_path
         self._recorder.record()
-        LOGGER.info("QMediaRecorder: recording to %s", output_path)
+        LOGGER.info(
+            "QMediaRecorder: recording to %s (state=%s)",
+            output_path, self._recorder.recorderState().name,
+        )
         return output_path
+
+    @Slot(QMediaRecorder.Error, str)
+    def _on_recorder_error(self, error, error_string: str) -> None:
+        LOGGER.error("QMediaRecorder error: %s — %s", error.name, error_string)
 
     def stop(self) -> Path | None:
         """Stop recording and release the camera. Thread-safe.
 
         recording_controller calls this from a background thread.  Qt media
-        objects (QMediaRecorder, QCamera, QEventLoop) only work on their
-        owning thread (the main thread here), so when we're called off-main
-        we marshal the work via QTimer.singleShot(0, ...) and block on a
-        threading.Event for the result.
+        objects only work on their owning thread, so off-main calls fire a
+        queued signal that the main thread receives and acts on, while the
+        bg thread blocks on a threading.Event for the result.
         """
         if QThread.currentThread() is self.thread():
             return self._stop_on_main_thread()
 
-        # Off main thread — schedule the real work and wait
-        done = threading.Event()
-        result_box: list[Path | None] = [None]
-
-        def _runner() -> None:
-            try:
-                result_box[0] = self._stop_on_main_thread()
-            finally:
-                done.set()
-
-        QTimer.singleShot(0, _runner)
-        if not done.wait(timeout=15):
+        # Off-main thread path — emit queued signal, wait for completion
+        self._stop_done.clear()
+        self._stop_result = None
+        self._stopRequest.emit()
+        if not self._stop_done.wait(timeout=15):
             LOGGER.warning("QtCameraSession.stop() timed out waiting for main thread")
-        return result_box[0]
+        return self._stop_result
+
+    @Slot()
+    def _handle_stop_request(self) -> None:
+        """Slot invoked on the main thread by the queued _stopRequest signal."""
+        try:
+            self._stop_result = self._stop_on_main_thread()
+        finally:
+            self._stop_done.set()
 
     def _stop_on_main_thread(self) -> Path | None:
         """Actual stop logic — must run on the main thread."""
@@ -241,23 +258,61 @@ class QtCameraSession(QObject):
 
     @staticmethod
     def _apply_best_format(camera: QCamera, device, width: int, height: int, fps: int) -> None:
-        """Pick the camera format closest to the requested resolution+fps."""
+        """Pick the best camera format for the requested resolution + fps.
+
+        Strategy:
+          1. Filter to formats matching the requested resolution exactly.
+             If none match, fall back to the closest by pixel count.
+          2. Among matching, prefer MJPEG (less USB bandwidth, hardware
+             JPEG decode on Pi) over YUYV/YUV.
+          3. Among ties, pick the format with the highest maxFrameRate
+             that is <= the requested fps; if all are <= fps, just pick
+             the highest available.
+
+        This avoids the bug where Qt's first-listed format at a resolution
+        is a low-fps mode and gets selected by accident.
+        """
         formats = device.videoFormats()
         if not formats:
+            LOGGER.warning("Camera %s reports no formats", device.description())
             return
 
+        # Diagnostic: log every available format so we can debug selection
+        for fmt in formats:
+            LOGGER.info(
+                "  available: %dx%d  fps=%.1f-%.1f  pixel=%s",
+                fmt.resolution().width(), fmt.resolution().height(),
+                fmt.minFrameRate(), fmt.maxFrameRate(),
+                fmt.pixelFormat().name,
+            )
+
+        target = QSize(width, height)
         target_pixels = width * height
+        matching = [f for f in formats if f.resolution() == target]
+        candidates = matching if matching else formats
 
-        def score(fmt: QCameraFormat) -> tuple[int, int]:
+        def is_mjpeg(fmt: QCameraFormat) -> bool:
+            name = fmt.pixelFormat().name.lower()
+            return "jpeg" in name or "mjpeg" in name
+
+        def score(fmt: QCameraFormat) -> tuple:
             res = fmt.resolution()
-            pixel_diff = abs(res.width() * res.height() - target_pixels)
-            fps_diff = abs(fmt.maxFrameRate() - fps)
-            return (pixel_diff, int(fps_diff * 100))
+            res_diff = 0 if res == target else abs(res.width() * res.height() - target_pixels)
+            mjpeg_pref = 0 if is_mjpeg(fmt) else 1
+            # Prefer the highest fps that is <= requested.  If all formats
+            # exceed requested, pick the lowest above (for compatibility).
+            fmax = fmt.maxFrameRate()
+            if fmax <= fps:
+                fps_score = -fmax  # higher fmax wins (more negative sorts first)
+            else:
+                fps_score = fmax  # smaller exceedance wins
+            return (res_diff, mjpeg_pref, fps_score)
 
-        best = min(formats, key=score)
+        best = min(candidates, key=score)
         camera.setCameraFormat(best)
         LOGGER.info(
-            "QCamera format: %dx%d @ %.0ffps (requested %dx%d @ %dfps)",
+            "QCamera selected: %dx%d @ %.0ffps  pixel=%s  (requested %dx%d @ %dfps)",
             best.resolution().width(), best.resolution().height(),
-            best.maxFrameRate(), width, height, fps,
+            best.maxFrameRate(), best.pixelFormat().name,
+            width, height, fps,
         )
