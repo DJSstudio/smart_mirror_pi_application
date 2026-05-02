@@ -171,17 +171,16 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--height", str(height),
         "--framerate", str(fps),
         "--codec", "h264",
-        # H.264 High profile gives ~10-15% better quality at the same bitrate
-        # vs the default Baseline.  All modern decoders (including v4l2h264dec
-        # on Pi 4 and avdec_h264 on Pi 5) handle High profile fine.
-        "--profile", "high",
-        "--level", "4.2",  # required for high bitrates (>14 Mbps) at 720p+
+        # Profile is intentionally left at the default (Baseline/Main).
+        # Pi 4's v4l2h264dec hardware decoder produces corrupt (green) output
+        # when fed H.264 High profile streams, so don't override.
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
-        # Keyframe every 0.5 s worth of frames.  Balances decode load
-        # (most frames are lightweight P-frames) with fast error recovery
-        # (any glitch resolves within 0.5 s).  All-I-frame (--intra 1) was
-        # too heavy for real-time decode.
-        "--intra", str(max(fps // 2, 1)),
+        # Keyframe every ~0.25 s.  Short enough that the mirror gets its
+        # first decodable frame quickly after the camera starts (avoids
+        # the "black screen before video appears" delay), and that any
+        # UDP glitch resolves in under 250 ms.  Most frames are still
+        # lightweight P-frames so decode load stays low.
+        "--intra", str(max(fps // 4, 1)),
         "--bitrate", str(bitrate),
         "-o", "-",
     ]

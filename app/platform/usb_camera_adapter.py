@@ -268,17 +268,17 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
-        # High profile + level 4.2 gives ~10-15% better quality at the same
-        # bitrate vs Baseline.  zerolatency normally implies baseline; we
-        # override for sharper preview on the 4K mirror.
-        "-profile:v", "high",
-        "-level:v", "4.2",
+        # Profile intentionally left to libx264's default with -tune zerolatency
+        # (Baseline).  Pi 4's v4l2h264dec hardware decoder produces corrupt
+        # (green) output on H.264 High profile, so do not override.
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
-        # Keyframe every 0.5 s worth of frames.  Most frames are
-        # lightweight P-frames (easy to decode), while keyframes arrive
-        # often enough that any UDP glitch resolves within 0.5 s.
-        "-g", str(max(fps // 2, 1)),
+        # Keyframe every ~0.25 s.  Short enough that the mirror gets its
+        # first decodable frame quickly after the camera starts (avoids
+        # the "black screen before video appears" delay), and that any
+        # UDP glitch resolves in under 250 ms.  Most frames are still
+        # lightweight P-frames so decode load stays low.
+        "-g", str(max(fps // 4, 1)),
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         # Minimize muxing latency: flush every packet, no mux buffering.
