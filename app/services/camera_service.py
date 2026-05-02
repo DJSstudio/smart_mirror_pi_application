@@ -17,18 +17,22 @@ LOGGER = logging.getLogger(__name__)
 
 
 class CameraService:
-    def __init__(
-        self,
-        paths: AppPaths,
-        settings: SettingsService,
-        qt_camera_session: QtCameraSession,
-    ) -> None:
+    def __init__(self, paths: AppPaths, settings: SettingsService) -> None:
         self._paths = paths
         self._settings = settings
         self._pi = RaspberryPiCameraAdapter()
-        self._qt_usb = QtCameraAdapter(qt_camera_session)   # preferred USB path
-        self._usb = UsbCameraAdapter()                       # legacy ffmpeg fallback
+        self._usb = UsbCameraAdapter()                       # legacy ffmpeg path
+        self._qt_usb: QtCameraAdapter | None = None          # populated after QGuiApplication
         self._active = None  # currently running adapter
+
+    def attach_qt_camera_session(self, session: QtCameraSession) -> None:
+        """Inject the Qt camera session after QGuiApplication exists.
+
+        QMediaCaptureSession requires QGuiApplication, so we can't construct
+        the adapter at module-init time.  Called from main.py once the Qt
+        app is up.
+        """
+        self._qt_usb = QtCameraAdapter(session)
 
     # ------------------------------------------------------------------
     # Public API
@@ -48,8 +52,13 @@ class CameraService:
         )
 
     def start_preview_only(self) -> CameraPreview:
+        """Used by Live Compare — needs a stream URL the mirror MediaPlayer
+        can render alongside the saved video.  Always use the legacy adapters
+        (ffmpeg → UDP) for this; the Qt camera path produces frames via
+        QVideoSink which the compare-mode QML can't consume.
+        """
         self._stop_any(discard=True)
-        adapter = self._pick()
+        adapter = self._pick(prefer_url_stream=True)
         self._active = adapter
         return adapter.start_preview(
             work_dir=self._paths.temp_dir,
@@ -111,23 +120,28 @@ class CameraService:
         self._active = None
         return result
 
-    def _pick(self, raise_on_missing: bool = True):
-        """Choose adapter.  USB selection prefers Qt's native QMediaCaptureSession
-        (low-latency direct preview) over the legacy ffmpeg pipeline.  Set
-        camera_backend to 'usb_ffmpeg' to force the legacy path.
+    def _pick(self, raise_on_missing: bool = True, prefer_url_stream: bool = False):
+        """Choose adapter.
+
+        - USB recording (low latency): prefer Qt's QMediaCaptureSession path
+        - USB live_compare / preview: needs URL stream → always legacy ffmpeg
+        - Pi camera: rpicam-vid in both cases
+        - Override with camera_backend = "usb_ffmpeg" to force legacy on USB
         """
         pref = str(self._settings.get("camera_backend", "auto"))
+        usb_qt_ready = self._qt_usb is not None and not prefer_url_stream
+
         if pref == "raspberry_pi" and self._pi.is_available():
             return self._pi
         if pref == "usb_ffmpeg" and self._usb.is_available():
             return self._usb
         if pref == "usb" and self._usb.is_available():
-            return self._qt_usb
+            return self._qt_usb if usb_qt_ready else self._usb
         # auto
         if self._pi.is_available():
             return self._pi
         if self._usb.is_available():
-            return self._qt_usb
+            return self._qt_usb if usb_qt_ready else self._usb
         if raise_on_missing:
             raise RuntimeError(
                 "No camera backend available. "

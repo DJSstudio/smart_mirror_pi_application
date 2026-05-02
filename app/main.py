@@ -112,13 +112,7 @@ def main() -> int:
     # ----------------------------------------------------------------
     session_service = SessionService(session_repo)
     gallery_service = GalleryService(video_repo)
-    # Qt camera session must be created lazily once QGuiApplication exists,
-    # but since Python only constructs the QObject (no Qt calls yet), we can
-    # build it here.  start_preview/start_recording are called later from
-    # the Qt main thread.
-    from app.services.qt_camera_session import QtCameraSession  # noqa: PLC0415
-    qt_camera_session = QtCameraSession()
-    camera_service = CameraService(paths, settings, qt_camera_session)
+    camera_service = CameraService(paths, settings)
     mirror_display = MirrorDisplayService(settings)
     recording_service = RecordingService(
         paths=paths,
@@ -148,6 +142,13 @@ def main() -> int:
     _check_multimedia_backend()
     app.setApplicationName("Smart Mirror Pi")
     app.setOrganizationName("Smart Mirror")
+
+    # QMediaCaptureSession requires QGuiApplication to exist before it is
+    # constructed, so we create the camera session here and hand it off to
+    # CameraService.  Also exposed to QML as `qtCamera` further down.
+    from app.services.qt_camera_session import QtCameraSession  # noqa: PLC0415
+    qt_camera_session = QtCameraSession()
+    camera_service.attach_qt_camera_session(qt_camera_session)
 
     screen_manager = ScreenManager(app, settings)
 

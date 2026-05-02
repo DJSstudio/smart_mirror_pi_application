@@ -13,7 +13,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Signal, Slot, QUrl
+import threading
+
+from PySide6.QtCore import (
+    QEventLoop,
+    QObject,
+    QThread,
+    QTimer,
+    Property,
+    Signal,
+    Slot,
+    QUrl,
+)
 from PySide6.QtMultimedia import (
     QCamera,
     QCameraFormat,
@@ -35,20 +46,36 @@ class QtCameraSession(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._capture = QMediaCaptureSession(self)
-        self._video_sink = QVideoSink(self)
-        self._capture.setVideoSink(self._video_sink)
         self._camera: QCamera | None = None
         self._recorder: QMediaRecorder | None = None
         self._active = False
         self._recording_path: Path | None = None
+        # The QML VideoOutput passes us its native QVideoSink via attachSink().
+        # We hold a reference so it survives across mode changes.
+        self._attached_sink: QVideoSink | None = None
 
     # ------------------------------------------------------------------
-    # QML-readable
+    # QML-callable wiring
     # ------------------------------------------------------------------
 
-    @Property(QVideoSink, notify=changed)
-    def videoSink(self) -> QVideoSink:
-        return self._video_sink
+    @Slot(QVideoSink)
+    def attachSink(self, sink: QVideoSink) -> None:
+        """QML calls this from a VideoOutput's Component.onCompleted to wire
+        its native videoSink as the destination for camera frames.  The
+        VideoOutput owns its sink — we just tell the capture session where
+        to push frames.
+        """
+        self._attached_sink = sink
+        if sink is not None:
+            self._capture.setVideoSink(sink)
+            LOGGER.info("QCamera: attached video sink from QML")
+        else:
+            self._capture.setVideoSink(None)
+
+    @Slot()
+    def detachSink(self) -> None:
+        self._attached_sink = None
+        self._capture.setVideoSink(None)
 
     @Property(bool, notify=changed)
     def active(self) -> bool:
@@ -109,21 +136,71 @@ class QtCameraSession(QObject):
         return output_path
 
     def stop(self) -> Path | None:
-        """Stop recording (if any) and release the camera. Returns the file
-        that was being recorded to, or None if preview-only.
+        """Stop recording and release the camera. Thread-safe.
+
+        recording_controller calls this from a background thread.  Qt media
+        objects (QMediaRecorder, QCamera, QEventLoop) only work on their
+        owning thread (the main thread here), so when we're called off-main
+        we marshal the work via QTimer.singleShot(0, ...) and block on a
+        threading.Event for the result.
         """
-        recording_path = self._recording_path
-        self._recording_path = None
+        if QThread.currentThread() is self.thread():
+            return self._stop_on_main_thread()
+
+        # Off main thread — schedule the real work and wait
+        done = threading.Event()
+        result_box: list[Path | None] = [None]
+
+        def _runner() -> None:
+            try:
+                result_box[0] = self._stop_on_main_thread()
+            finally:
+                done.set()
+
+        QTimer.singleShot(0, _runner)
+        if not done.wait(timeout=15):
+            LOGGER.warning("QtCameraSession.stop() timed out waiting for main thread")
+        return result_box[0]
+
+    def _stop_on_main_thread(self) -> Path | None:
+        """Actual stop logic — must run on the main thread."""
+        actual_path: Path | None = None
 
         if self._recorder is not None:
+            recorder = self._recorder
             try:
-                if self._recorder.recorderState() != QMediaRecorder.RecorderState.StoppedState:
-                    self._recorder.stop()
+                if recorder.recorderState() != QMediaRecorder.RecorderState.StoppedState:
+                    loop = QEventLoop()
+
+                    def _on_state_changed(state):
+                        if state == QMediaRecorder.RecorderState.StoppedState:
+                            loop.quit()
+
+                    recorder.recorderStateChanged.connect(_on_state_changed)
+                    recorder.stop()
+                    # Safety timeout — don't hang forever if signal never fires
+                    QTimer.singleShot(5000, loop.quit)
+                    loop.exec()
+                    recorder.recorderStateChanged.disconnect(_on_state_changed)
+
+                # Use actualLocation: Qt may have changed/normalized the path
+                actual_url = recorder.actualLocation()
+                if not actual_url.isEmpty():
+                    local = actual_url.toLocalFile()
+                    if local:
+                        actual_path = Path(local)
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning("QMediaRecorder stop failed: %s", exc)
+
+            # Fall back to the path we requested if actualLocation was empty
+            if actual_path is None:
+                actual_path = self._recording_path
+
             self._capture.setRecorder(None)
-            self._recorder.deleteLater()
+            recorder.deleteLater()
             self._recorder = None
+
+        self._recording_path = None
 
         if self._camera is not None:
             try:
@@ -138,7 +215,7 @@ class QtCameraSession(QObject):
             self._active = False
             self.changed.emit()
 
-        return recording_path
+        return actual_path
 
     @Slot(result=bool)
     def is_alive(self) -> bool:
