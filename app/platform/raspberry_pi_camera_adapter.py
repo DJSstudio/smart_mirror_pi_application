@@ -171,6 +171,11 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--height", str(height),
         "--framerate", str(fps),
         "--codec", "h264",
+        # H.264 High profile gives ~10-15% better quality at the same bitrate
+        # vs the default Baseline.  All modern decoders (including v4l2h264dec
+        # on Pi 4 and avdec_h264 on Pi 5) handle High profile fine.
+        "--profile", "high",
+        "--level", "4.2",  # required for high bitrates (>14 Mbps) at 720p+
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
         # Keyframe every 0.5 s worth of frames.  Balances decode load
         # (most frames are lightweight P-frames) with fast error recovery

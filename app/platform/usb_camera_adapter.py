@@ -268,6 +268,11 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
+        # High profile + level 4.2 gives ~10-15% better quality at the same
+        # bitrate vs Baseline.  zerolatency normally implies baseline; we
+        # override for sharper preview on the 4K mirror.
+        "-profile:v", "high",
+        "-level:v", "4.2",
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
         # Keyframe every 0.5 s worth of frames.  Most frames are

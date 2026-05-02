@@ -4,7 +4,7 @@
   "camera_width": 1280,
   "camera_height": 720,
   "camera_fps": 60,
-  "camera_bitrate": 8000000,
+  "camera_bitrate": 16000000,
   "countdown_seconds": 3,
   "mirror_orientation_degrees": 0,
   "compare_fill_crop": true,

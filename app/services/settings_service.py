@@ -15,7 +15,7 @@ _DEFAULTS: dict[str, Any] = {
     "camera_width": 1280,
     "camera_height": 720,
     "camera_fps": 60,
-    "camera_bitrate": 8_000_000,
+    "camera_bitrate": 16_000_000,
     # Recording
     "countdown_seconds": 3,
     # Mirror
