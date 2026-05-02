@@ -112,7 +112,13 @@ def main() -> int:
     # ----------------------------------------------------------------
     session_service = SessionService(session_repo)
     gallery_service = GalleryService(video_repo)
-    camera_service = CameraService(paths, settings)
+    # Qt camera session must be created lazily once QGuiApplication exists,
+    # but since Python only constructs the QObject (no Qt calls yet), we can
+    # build it here.  start_preview/start_recording are called later from
+    # the Qt main thread.
+    from app.services.qt_camera_session import QtCameraSession  # noqa: PLC0415
+    qt_camera_session = QtCameraSession()
+    camera_service = CameraService(paths, settings, qt_camera_session)
     mirror_display = MirrorDisplayService(settings)
     recording_service = RecordingService(
         paths=paths,
@@ -241,6 +247,7 @@ def main() -> int:
     ctx.setContextProperty("mirrorDisplay", mirror_display)
     ctx.setContextProperty("playbackService", playback_service)
     ctx.setContextProperty("idleService", idle_service)
+    ctx.setContextProperty("qtCamera", qt_camera_session)
 
     qml_root = paths.repo_root / "app" / "qml"
     control_win = _load_qml(engine, qml_root / "ControlWindow.qml")

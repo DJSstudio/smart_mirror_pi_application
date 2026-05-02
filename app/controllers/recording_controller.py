@@ -306,8 +306,10 @@ class RecordingController(QObject):
         else:
             self._countdown -= 1
             # Reveal the mirror preview early so its GStreamer pipeline also
-            # has time to warm up (_MIRROR_REVEAL_AT seconds remain).
-            if self._countdown == _MIRROR_REVEAL_AT and self._warmup_mirror_url:
+            # has time to warm up (_MIRROR_REVEAL_AT seconds remain).  Pass
+            # the URL even if empty — the QtCamera path renders via videoSink
+            # (no URL needed); the legacy Pi-camera path uses the URL.
+            if self._countdown == _MIRROR_REVEAL_AT:
                 self._mirror.show_live_preview(self._warmup_mirror_url)
             self._emit()
 

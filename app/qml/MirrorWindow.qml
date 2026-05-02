@@ -182,23 +182,47 @@ ApplicationWindow {
     }
 
     // ── Live preview (recording mode) ────────────────────────────────
+    // Two paths:
+    //  1) Qt-native (USB via QMediaCaptureSession) — bind VideoOutput.videoSink
+    //     to the qtCamera object's sink. Zero encode-decode latency.
+    //  2) Legacy stream URL (Pi camera via rpicam-vid → UDP MPEGTS) — use
+    //     MediaPlayer as before.
     Component {
         id: livePreviewComp
         Item {
+            // Path 1: Qt camera direct
+            VideoOutput {
+                id: qtLiveOut
+                anchors.fill: parent
+                fillMode: VideoOutput.PreserveAspectFit
+                visible: qtCamera && qtCamera.active
+                Component.onCompleted: {
+                    if (qtCamera) videoSink = qtCamera.videoSink
+                }
+                Connections {
+                    target: qtCamera
+                    function onChanged() {
+                        if (qtCamera && qtCamera.active)
+                            qtLiveOut.videoSink = qtCamera.videoSink
+                    }
+                }
+            }
+
+            // Path 2: legacy URL stream
             MediaPlayer {
                 id: livePlayer
-                source: mirrorDisplay.primarySource
+                source: (qtCamera && qtCamera.active) ? "" : mirrorDisplay.primarySource
                 loops: MediaPlayer.Infinite
-                videoOutput: liveOut
+                videoOutput: legacyLiveOut
                 audioOutput: AudioOutput { muted: true }
-                Component.onCompleted: play()
                 onSourceChanged: { stop(); if (source.toString().length) play() }
             }
 
             VideoOutput {
-                id: liveOut
+                id: legacyLiveOut
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
+                visible: !(qtCamera && qtCamera.active)
             }
         }
     }

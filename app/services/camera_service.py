@@ -7,19 +7,27 @@ from pathlib import Path
 
 from app.config.paths import AppPaths
 from app.models.entities import CameraPreview, CompletedCapture
+from app.platform.qt_camera_adapter import QtCameraAdapter
 from app.platform.raspberry_pi_camera_adapter import RaspberryPiCameraAdapter
 from app.platform.usb_camera_adapter import UsbCameraAdapter
+from app.services.qt_camera_session import QtCameraSession
 from app.services.settings_service import SettingsService
 
 LOGGER = logging.getLogger(__name__)
 
 
 class CameraService:
-    def __init__(self, paths: AppPaths, settings: SettingsService) -> None:
+    def __init__(
+        self,
+        paths: AppPaths,
+        settings: SettingsService,
+        qt_camera_session: QtCameraSession,
+    ) -> None:
         self._paths = paths
         self._settings = settings
         self._pi = RaspberryPiCameraAdapter()
-        self._usb = UsbCameraAdapter()
+        self._qt_usb = QtCameraAdapter(qt_camera_session)   # preferred USB path
+        self._usb = UsbCameraAdapter()                       # legacy ffmpeg fallback
         self._active = None  # currently running adapter
 
     # ------------------------------------------------------------------
@@ -104,16 +112,22 @@ class CameraService:
         return result
 
     def _pick(self, raise_on_missing: bool = True):
+        """Choose adapter.  USB selection prefers Qt's native QMediaCaptureSession
+        (low-latency direct preview) over the legacy ffmpeg pipeline.  Set
+        camera_backend to 'usb_ffmpeg' to force the legacy path.
+        """
         pref = str(self._settings.get("camera_backend", "auto"))
         if pref == "raspberry_pi" and self._pi.is_available():
             return self._pi
-        if pref == "usb" and self._usb.is_available():
+        if pref == "usb_ffmpeg" and self._usb.is_available():
             return self._usb
+        if pref == "usb" and self._usb.is_available():
+            return self._qt_usb
         # auto
         if self._pi.is_available():
             return self._pi
         if self._usb.is_available():
-            return self._usb
+            return self._qt_usb
         if raise_on_missing:
             raise RuntimeError(
                 "No camera backend available. "
