@@ -92,8 +92,10 @@ def main() -> int:
 
     settings = SettingsService(paths)
     configure_logging(paths, str(settings.get("log_level", "INFO")))
+    from app.platform.base_camera_adapter import BaseCameraAdapter  # noqa: PLC0415
     LOGGER.info("=" * 60)
     LOGGER.info("Smart Mirror Pi  starting up")
+    LOGGER.info("Hardware: %s", BaseCameraAdapter.detect_pi_model() or "non-Pi")
     LOGGER.info("Data dir: %s", paths.data_dir)
 
     # ----------------------------------------------------------------
@@ -122,7 +124,6 @@ def main() -> int:
         camera_service=camera_service,
         mirror_display=mirror_display,
         settings=settings,
-        paths=paths,
     )
     # Auto-cleanup: delete video data for sessions idle > threshold.
     # Runs once at startup (before Qt) then every 30 min via QTimer below.

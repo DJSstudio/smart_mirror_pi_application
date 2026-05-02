@@ -60,6 +60,19 @@ class BaseCameraAdapter(ABC):
             s.bind(("127.0.0.1", 0))
             return s.getsockname()[1]
 
+    @staticmethod
+    def detect_pi_model() -> str:
+        """Return the Pi model string (e.g. 'Raspberry Pi 4 Model B Rev 1.4').
+
+        Reads /proc/device-tree/model.  Returns empty string on non-Pi systems.
+        Useful for adapting behavior between Pi 4 (hardware H.264 encoder/decoder)
+        and Pi 5 (software-only H.264, faster CPU).
+        """
+        try:
+            return Path("/proc/device-tree/model").read_text().rstrip("\x00").strip()
+        except (OSError, FileNotFoundError):
+            return ""
+
     def _start_pipe_logger(self, label: str, pipe) -> None:
         """Drain a subprocess pipe in a background thread, writing to the logger.
 
