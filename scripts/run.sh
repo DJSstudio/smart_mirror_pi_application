@@ -45,22 +45,9 @@ if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then
     export GST_GL_PLATFORM="${GST_GL_PLATFORM:-egl}"
 fi
 
-# ── H.264 decoder selection ───────────────────────────────────────────────
-# Pi 4: prefer hardware decoder (v4l2h264dec). Pi 5: no V4L2M2M H.264 decoder
-# hardware — fall back to software (avdec_h264), which the Pi 5 CPU handles.
-PI_MODEL="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || echo '')"
-if [ -z "${GST_PLUGIN_FEATURE_RANK:-}" ]; then
-    case "${PI_MODEL}" in
-        *"Raspberry Pi 4"*)
-            export GST_PLUGIN_FEATURE_RANK="v4l2h264dec:512,avdec_h264:256"
-            ;;
-        *"Raspberry Pi 5"*)
-            # Explicit software decode on Pi 5 — V4L2 elements can be
-            # auto-plugged and produce green output.
-            export GST_PLUGIN_FEATURE_RANK="v4l2h264dec:0,avdec_h264:512"
-            ;;
-    esac
-fi
+# Prefer software H264 decoder over the Pi V4L2M2M path which crashes on
+# -tune zerolatency streams.
+export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50}"
 
 export PYTHONUNBUFFERED=1
 

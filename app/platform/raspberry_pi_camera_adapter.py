@@ -171,16 +171,14 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--height", str(height),
         "--framerate", str(fps),
         "--codec", "h264",
-        # Profile is intentionally left at the default (Baseline/Main).
-        # Pi 4's v4l2h264dec hardware decoder produces corrupt (green) output
-        # when fed H.264 High profile streams, so don't override.
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
-        # Keyframe every ~0.25 s.  Short enough that the mirror gets its
-        # first decodable frame quickly after the camera starts (avoids
-        # the "black screen before video appears" delay), and that any
-        # UDP glitch resolves in under 250 ms.  Most frames are still
-        # lightweight P-frames so decode load stays low.
-        "--intra", str(max(fps // 4, 1)),
+        # Force every frame to be an IDR (intra=1).  This makes the UDP
+        # preview stream fully intra-frame so a lost packet can never
+        # corrupt more than a single frame — eliminating the cascading
+        # mosaic artefacts seen during live preview.  Also avoids the
+        # "black screen for a long time at start" wait while the decoder
+        # looks for its first keyframe.
+        "--intra", "1",
         "--bitrate", str(bitrate),
         "-o", "-",
     ]

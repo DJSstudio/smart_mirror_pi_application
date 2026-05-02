@@ -43,33 +43,11 @@ if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then
     export GST_GL_PLATFORM="${GST_GL_PLATFORM:-egl}"
 fi
 
-# ── H.264 decoder selection ───────────────────────────────────────────────
-# Pi 4: prefer hardware decoder (v4l2h264dec) — handles 1080p@30 with near-
-#       zero CPU. Crashes only on all-I-frame zerolatency streams; we use
-#       normal GOP so it's safe.
-# Pi 5: no V4L2M2M H.264 decoder hardware; GStreamer falls back to
-#       avdec_h264 (software). The Pi 5 CPU handles this comfortably.
-# Other (dev machines): leave defaults — usually have hardware accel.
-PI_MODEL="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || echo '')"
-if [ -z "${GST_PLUGIN_FEATURE_RANK:-}" ]; then
-    case "${PI_MODEL}" in
-        *"Raspberry Pi 4"*)
-            export GST_PLUGIN_FEATURE_RANK="v4l2h264dec:512,avdec_h264:256"
-            echo "Detected Pi 4 — using hardware H.264 decoder"
-            ;;
-        *"Raspberry Pi 5"*)
-            # Explicitly disable any V4L2 H.264 elements and force software
-            # decode.  Pi 5 has no V4L2M2M H.264 hardware, but a partial v4l2
-            # element can still be auto-plugged and produce green/garbage
-            # output.  Pin avdec_h264 high and v4l2h264dec to 0.
-            export GST_PLUGIN_FEATURE_RANK="v4l2h264dec:0,avdec_h264:512"
-            echo "Detected Pi 5 — forcing software H.264 decoder (avdec_h264)"
-            ;;
-        *)
-            echo "Non-Pi platform (${PI_MODEL:-unknown}) — using GStreamer defaults"
-            ;;
-    esac
-fi
+# Prefer software H.264 decoder (avdec_h264) over the V4L2 path.  On Pi 5
+# there is no V4L2 H.264 hardware decoder; auto-plugging v4l2h264dec produces
+# green output.  On Pi 4 the V4L2 hardware decoder also crashes on
+# -tune zerolatency streams, so software decode is the safe default.
+export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50}"
 
 export PYTHONUNBUFFERED=1
 

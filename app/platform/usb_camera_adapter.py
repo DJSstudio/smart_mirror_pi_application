@@ -268,22 +268,16 @@ def _ffmpeg_cmd(device: str, width: int, height: int, fps: int, bitrate: int, te
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
-        # Profile intentionally left to libx264's default with -tune zerolatency
-        # (Baseline).  Pi 4's v4l2h264dec hardware decoder produces corrupt
-        # (green) output on H.264 High profile, so do not override.
         "-b:v", str(bitrate),
         "-pix_fmt", "yuv420p",
-        # Explicit color metadata.  Without these, libx264 ultrafast +
-        # zerolatency emits a stream with ambiguous color tagging; some
-        # GStreamer decoder paths then default to wrong color matrix and
-        # render the entire frame green.
-        "-color_primaries", "bt709",
-        "-color_trc", "bt709",
-        "-colorspace", "bt709",
-        "-color_range", "tv",
-        # Keyframe every ~0.5 s.  libx264 ultrafast can produce malformed
-        # bitstreams when the GOP is very short — keep this conservative.
-        "-g", str(max(fps // 2, 1)),
+        # Force every frame to be an I-frame (gop=1).  With inter-frame
+        # prediction (P/B frames), a single lost UDP packet corrupts every
+        # dependent frame until the next keyframe — causing seconds of
+        # mosaic artefacts.  With gop=1 every frame is self-contained, so
+        # a dropped packet glitches exactly one frame (~33 ms) instead of
+        # cascading.  Also avoids the "black screen for a long time at
+        # start" wait while the decoder looks for its first keyframe.
+        "-g", "1",
         # Explicit stream mapping required by the tee muxer.
         "-map", "0:v:0",
         # Minimize muxing latency: flush every packet, no mux buffering.
