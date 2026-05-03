@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -71,10 +72,14 @@ class QtCameraSession(QObject):
         # Recording state
         self._recording_path: Path | None = None
         self._recording_target_fps: int = 30
-        self._actual_fps: float = 30.0   # set when QCamera negotiates a format
+        self._actual_fps: float = 30.0   # camera-advertised max
         self._ffmpeg: subprocess.Popen | None = None
         self._first_frame_seen: bool = False
         self._frame_count: int = 0
+        # Wall-clock timestamps so we can fix up the file's timing if the
+        # camera delivers fewer frames per second than its declared max.
+        self._recording_start_wallclock: float = 0.0
+        self._last_frame_wallclock: float = 0.0
 
         # Cross-thread stop coordination
         self._stop_done = threading.Event()
@@ -238,6 +243,9 @@ class QtCameraSession(QObject):
                     pass
             LOGGER.info("Live Compare recording ffmpeg exited (frames written: %d)",
                         self._frame_count)
+            # Fix the file's playback timing if camera under-delivered frames
+            if recorded is not None:
+                self._correct_recording_timing(recorded)
         self._frame_count = 0
         if recorded is not None and recorded.exists() and recorded.stat().st_size > 0:
             return recorded
@@ -279,13 +287,12 @@ class QtCameraSession(QObject):
                     if bits is None:
                         continue
                     nbytes = frame.mappedBytes(p)
-                    # bits is a memoryview-like; slice to actual mapped size
                     stdin.write(bytes(bits[:nbytes]))
                 self._frame_count += 1
+                self._last_frame_wallclock = time.monotonic()
             except (BrokenPipeError, OSError) as exc:
                 LOGGER.warning("ffmpeg pipe closed: %s (after %d frames)",
                                exc, self._frame_count)
-                # ffmpeg crashed — disable recording but don't crash app
                 self._recording_path = None
         finally:
             frame.unmap()
@@ -294,41 +301,43 @@ class QtCameraSession(QObject):
         """Build an ffmpeg command tailored to the actual frame format and
         start it.  Called once on first frame received during recording.
 
-        The framerate passed to ffmpeg is the *actual* fps the camera is
-        delivering (negotiated by _apply_best_format), NOT the requested
-        fps from settings.  Mismatching causes the file's duration metadata
-        to be wrong (e.g., declaring 60fps when actual is 10fps stamps the
-        file as 6× shorter than it really is, breaking trim_mp4 downstream).
+        Timing strategy: -use_wallclock_as_timestamps 1 makes ffmpeg stamp
+        each input frame with the wall-clock time it was READ from stdin.
+        This way the output file's timing matches the camera's ACTUAL
+        delivery rate (which is usually lower than its advertised max due
+        to lighting / USB / CPU jitter) without us having to know or
+        hardcode the fps in advance.  The -framerate hint is still given
+        as a fallback / probe value but timestamps come from wallclock.
         """
         fmt = frame.pixelFormat()
         w = frame.width()
         h = frame.height()
-        # Use the actual negotiated fps so file metadata matches frame timing.
-        # Round to nearest integer because ffmpeg -framerate prefers integers
-        # for stable timestamping; non-integer fps values like 29.97 work
-        # but integer is safer.
-        fps = max(1, int(round(self._actual_fps)))
+        # -framerate is still required for raw demuxers as a probe; wallclock
+        # timestamps override it for actual frame timing.
+        fps_hint = max(1, int(round(self._actual_fps)))
         out_path = self._recording_path
 
         cmd: list[str]
         if fmt == QVideoFrameFormat.PixelFormat.Format_Jpeg:
-            # Camera is producing MJPEG frames — feed them directly to
-            # ffmpeg's mjpeg demuxer.  Tiny pipe bandwidth (compressed).
+            # MJPEG passthrough — tiny pipe bandwidth (compressed).
             cmd = [
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-use_wallclock_as_timestamps", "1",
+                "-fflags", "+genpts",
                 "-f", "image2pipe", "-vcodec", "mjpeg",
-                "-framerate", str(fps),
+                "-framerate", str(fps_hint),
                 "-i", "pipe:0",
+                "-vsync", "vfr",
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-tune", "zerolatency",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-y", str(out_path),
             ]
-            LOGGER.info("Recorder: MJPEG passthrough → libx264, %dx%d @ %dfps (actual)",
-                        w, h, fps)
+            LOGGER.info("Recorder: MJPEG → libx264 (wallclock-paced), %dx%d hint=%dfps",
+                        w, h, fps_hint)
         else:
-            # Raw frames — map Qt's pixel format name to an ffmpeg pixel format
+            # Raw frames
             ff_pix = _qt_pix_to_ffmpeg(fmt)
             if ff_pix is None:
                 raise RuntimeError(
@@ -336,19 +345,22 @@ class QtCameraSession(QObject):
                 )
             cmd = [
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-use_wallclock_as_timestamps", "1",
+                "-fflags", "+genpts",
                 "-f", "rawvideo",
                 "-pixel_format", ff_pix,
                 "-video_size", f"{w}x{h}",
-                "-framerate", str(fps),
+                "-framerate", str(fps_hint),
                 "-i", "pipe:0",
+                "-vsync", "vfr",
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-tune", "zerolatency",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-y", str(out_path),
             ]
-            LOGGER.info("Recorder: raw %s → libx264, %dx%d @ %dfps (actual)",
-                        ff_pix, w, h, fps)
+            LOGGER.info("Recorder: raw %s → libx264 (wallclock-paced), %dx%d hint=%dfps",
+                        ff_pix, w, h, fps_hint)
 
         self._ffmpeg = subprocess.Popen(
             cmd,
@@ -364,6 +376,8 @@ class QtCameraSession(QObject):
             daemon=True,
         ).start()
         self._first_frame_seen = True
+        self._recording_start_wallclock = time.monotonic()
+        self._last_frame_wallclock = self._recording_start_wallclock
         LOGGER.info("Recorder ffmpeg started (pid=%d)", self._ffmpeg.pid)
 
     # ------------------------------------------------------------------
@@ -412,6 +426,9 @@ class QtCameraSession(QObject):
                     pass
             LOGGER.info("Recorder ffmpeg exited (frames written: %d)",
                         self._frame_count)
+            # Fix the file's playback timing if camera under-delivered frames
+            if recorded_path is not None:
+                self._correct_recording_timing(recorded_path)
         self._frame_count = 0
         self._first_frame_seen = False
 
@@ -432,6 +449,65 @@ class QtCameraSession(QObject):
         if recorded_path is not None and recorded_path.exists() and recorded_path.stat().st_size > 0:
             return recorded_path
         return None
+
+    def _correct_recording_timing(self, file_path: Path) -> None:
+        """Fix the file's playback duration so it matches actual wall-clock.
+
+        ffmpeg stamps frames at intervals based on the declared -framerate,
+        which is the camera's *advertised max*.  Cameras typically deliver
+        fewer frames per second than advertised (lighting/CPU/USB jitter),
+        so the file ends up shorter than the actual recording.  E.g. 360
+        frames over 15s wallclock declared at 30fps = 12s in the file.
+
+        This re-stamps the file's PTS so playback matches wallclock.
+        Re-encodes (libx264 ultrafast) — Pi 4 handles short clips fine.
+        """
+        if not file_path.exists() or self._frame_count == 0:
+            return
+        wall_duration = self._last_frame_wallclock - self._recording_start_wallclock
+        if wall_duration <= 0:
+            return
+        actual_fps = self._frame_count / wall_duration
+        declared_fps = max(1.0, self._actual_fps)
+        # If we're within 5% of declared, the difference is negligible
+        if abs(actual_fps - declared_fps) / declared_fps < 0.05:
+            return
+        scale = declared_fps / actual_fps   # >1 means file is too short, stretch it
+        LOGGER.info(
+            "Fixing recording timing: declared=%.1ffps actual=%.1ffps "
+            "(frames=%d wall=%.1fs file=%.1fs) → setpts*%.3f",
+            declared_fps, actual_fps,
+            self._frame_count, wall_duration, self._frame_count / declared_fps,
+            scale,
+        )
+        fixed = file_path.with_name(file_path.stem + "_fixed.mp4")
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                    "-i", str(file_path),
+                    "-filter:v", f"setpts={scale:.6f}*PTS",
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p",
+                    "-an",
+                    "-movflags", "+faststart",
+                    "-y", str(fixed),
+                ],
+                check=True, timeout=60,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            file_path.unlink()
+            fixed.rename(file_path)
+            LOGGER.info("Recording timing corrected → %s", file_path)
+        except subprocess.CalledProcessError as exc:
+            LOGGER.warning("Timing correction failed (keeping original): %s",
+                           exc.stderr.decode(errors="replace") if exc.stderr else exc)
+            fixed.unlink(missing_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Timing correction error (keeping original): %s", exc)
+            fixed.unlink(missing_ok=True)
 
     @Slot(result=bool)
     def is_alive(self) -> bool:
