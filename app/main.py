@@ -149,6 +149,12 @@ def main() -> int:
     from app.services.qt_camera_session import QtCameraSession  # noqa: PLC0415
     qt_camera_session = QtCameraSession()
     camera_service.attach_qt_camera_session(qt_camera_session)
+    # Cache the camera enumeration NOW, before any recording starts and
+    # ffmpeg locks the source camera.  On Pi 4, Qt's GStreamer-based v4l2
+    # enumeration can fail to list any cameras once ffmpeg is holding the
+    # source — looking them up from this cache avoids that race.
+    n = qt_camera_session.prime_devices()
+    LOGGER.info("Qt camera enumeration: %d device(s) found", n)
 
     screen_manager = ScreenManager(app, settings)
 

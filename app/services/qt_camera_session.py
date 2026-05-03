@@ -57,10 +57,33 @@ class QtCameraSession(QObject):
         # The QML VideoOutput passes us its native QVideoSink via attachSink().
         # We hold a reference so it survives across mode changes.
         self._attached_sink: QVideoSink | None = None
+        # Cached camera device descriptors, populated by prime_devices() at
+        # startup BEFORE ffmpeg locks any device.  Lookup-by-hint goes
+        # through the cache first; live QMediaDevices.videoInputs() can
+        # return empty on Pi 4 when ffmpeg holds the source camera, due to
+        # GStreamer v4l2 enumeration bailing on the first error.
+        self._cached_devices: list = []
         # Cross-thread stop coordination
         self._stop_done = threading.Event()
         self._stop_result: Path | None = None
         self._stopRequest.connect(self._handle_stop_request, Qt.ConnectionType.QueuedConnection)
+
+    def prime_devices(self) -> int:
+        """Enumerate cameras at app startup and cache the result.  Must run
+        AFTER QGuiApplication exists and BEFORE any ffmpeg subprocess opens
+        the source camera (which can break Qt's enumeration on Pi 4).
+
+        Returns the number of cameras found — main.py logs this.
+        """
+        self._cached_devices = list(QMediaDevices.videoInputs())
+        for dev in self._cached_devices:
+            try:
+                dev_id = dev.id().data().decode(errors="replace")
+            except Exception:  # noqa: BLE001
+                dev_id = str(dev.id())
+            LOGGER.info("Primed camera: id=%s description=%s",
+                        dev_id, dev.description())
+        return len(self._cached_devices)
 
     # ------------------------------------------------------------------
     # QML-callable wiring
@@ -244,26 +267,38 @@ class QtCameraSession(QObject):
     # Helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _pick_device(hint: str | None):
-        cameras = QMediaDevices.videoInputs()
+    def _pick_device(self, hint: str | None):
+        """Find a camera matching the hint.  Prefers the cached enumeration
+        (taken at startup before ffmpeg locks the source) over a live
+        QMediaDevices query, which can return empty on Pi 4 once ffmpeg
+        is holding the USB camera.
+        """
+        # Try the cache first
+        cameras = list(self._cached_devices)
+        if not cameras:
+            cameras = list(QMediaDevices.videoInputs())
+            for dev in cameras:
+                try:
+                    dev_id = dev.id().data().decode(errors="replace")
+                except Exception:  # noqa: BLE001
+                    dev_id = str(dev.id())
+                LOGGER.info("  (live) available camera: id=%s description=%s",
+                            dev_id, dev.description())
         if not cameras:
             return None
-        # Diagnostic: log every camera Qt sees so we can debug device hint matching
-        for dev in cameras:
-            try:
-                dev_id = dev.id().data().decode(errors="replace")
-            except Exception:  # noqa: BLE001
-                dev_id = str(dev.id())
-            LOGGER.info("  available camera: id=%s description=%s",
-                        dev_id, dev.description())
         if hint:
             hint_b = hint.encode() if isinstance(hint, str) else hint
             for dev in cameras:
                 if dev.id() == hint_b or hint in dev.description():
                     return dev
-            # Strict: caller asked for a specific device — don't substitute
-            # something else, surface the failure instead.
+            # Hint missed both cache AND live — refresh the cache once
+            # in case the device just appeared (e.g., loopback loaded
+            # after startup).
+            LOGGER.warning("Requested camera %s not in cache, retrying live", hint)
+            cameras = list(QMediaDevices.videoInputs())
+            for dev in cameras:
+                if dev.id() == hint_b or hint in dev.description():
+                    return dev
             LOGGER.error("Requested camera %s not found in QMediaDevices", hint)
             return None
         return cameras[0]
