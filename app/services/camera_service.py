@@ -10,7 +10,6 @@ from app.models.entities import CameraPreview, CompletedCapture
 from app.platform.qt_camera_adapter import QtCameraAdapter
 from app.platform.raspberry_pi_camera_adapter import RaspberryPiCameraAdapter
 from app.platform.usb_camera_adapter import UsbCameraAdapter
-from app.platform.v4l2_loopback_camera_adapter import V4L2LoopbackCameraAdapter
 from app.services.qt_camera_session import QtCameraSession
 from app.services.settings_service import SettingsService
 
@@ -22,20 +21,13 @@ class CameraService:
         self._paths = paths
         self._settings = settings
         self._pi = RaspberryPiCameraAdapter()
-        self._usb = UsbCameraAdapter()                          # legacy ffmpeg+UDP fallback
-        self._qt_usb: QtCameraAdapter | None = None             # opt-in QMediaRecorder path
-        self._loopback: V4L2LoopbackCameraAdapter | None = None # default USB path
-        self._active = None  # currently running adapter
+        self._usb = UsbCameraAdapter()                  # legacy ffmpeg+UDP fallback
+        self._qt_usb: QtCameraAdapter | None = None     # default USB path (QCamera + ffmpeg-pipe)
+        self._active = None
 
     def attach_qt_camera_session(self, session: QtCameraSession) -> None:
-        """Inject the Qt camera session after QGuiApplication exists.
-
-        QMediaCaptureSession (used by both QtCameraAdapter and the v4l2
-        loopback adapter for the QCamera preview leg) requires QGuiApplication
-        to exist.  Called from main.py once the Qt app is up.
-        """
+        """Inject the Qt camera session after QGuiApplication exists."""
         self._qt_usb = QtCameraAdapter(session)
-        self._loopback = V4L2LoopbackCameraAdapter(session)
 
     # ------------------------------------------------------------------
     # Public API
@@ -127,42 +119,27 @@ class CameraService:
         """Choose camera adapter.
 
         Decision tree for USB:
-          - "usb_ffmpeg"           → legacy ffmpeg+UDP (Qt MediaPlayer renders)
-          - "usb_qt"               → QtCameraAdapter (QMediaRecorder, broken — debug only)
-          - "usb" / "auto"         → V4L2 loopback (ffmpeg captures + records,
-                                     QCamera reads loopback for low-latency preview)
-        For the loopback path we need the kernel module loaded; if it's not,
-        fall back to the legacy adapter.
+          - "usb" / "auto"  → QtCameraAdapter (QCamera preview + ffmpeg-pipe recording)
+          - "usb_ffmpeg"    → legacy ffmpeg+UDP+MediaPlayer (laggy fallback)
+          - Live Compare always forces legacy (needs URL stream for compareComp)
         """
-        import os  # noqa: PLC0415
-        force_qt = os.environ.get("SMART_MIRROR_USE_QTCAMERA") == "1"
         pref = str(self._settings.get("camera_backend", "auto"))
+        qt_ready = self._qt_usb is not None and not prefer_url_stream
 
         if pref == "raspberry_pi" and self._pi.is_available():
             return self._pi
-        if pref == "usb_qt" and self._qt_usb is not None and not prefer_url_stream:
-            return self._qt_usb
         if pref == "usb_ffmpeg" and self._usb.is_available():
             return self._usb
-
-        # "usb" / "auto" — prefer the loopback adapter when ready
-        loopback_ok = (
-            self._loopback is not None
-            and self._loopback.is_available()
-            and not prefer_url_stream
-        )
-        if force_qt and self._qt_usb is not None and not prefer_url_stream:
-            return self._qt_usb
-        if pref == "usb":
-            if loopback_ok:
-                return self._loopback
+        if pref in ("usb", "usb_qt"):
+            if qt_ready:
+                return self._qt_usb
             if self._usb.is_available():
                 return self._usb
         # auto
         if self._pi.is_available():
             return self._pi
-        if loopback_ok:
-            return self._loopback
+        if qt_ready:
+            return self._qt_usb
         if self._usb.is_available():
             return self._usb
         if raise_on_missing:
