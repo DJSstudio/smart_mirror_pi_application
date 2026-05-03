@@ -140,9 +140,13 @@ class RecordingController(QObject):
     def beginRecording(self) -> None:
         """Start the pre-recording countdown.
 
-        The camera pipeline is started immediately so both GStreamer pipelines
-        (control + mirror) have the full countdown period to warm up.  This
-        eliminates pixelation/blocking artefacts at the start of recording.
+        The camera pipeline starts immediately so both GStreamer pipelines
+        (control + mirror) have the full countdown period to warm up.
+
+        The actual camera startup (which can take 1-2 s on Pi) is deferred to
+        the next event-loop tick so the QML UI gets a chance to repaint the
+        countdown / busy state first.  Without this defer, the user sees no
+        feedback for ~1 s after tapping Start and may double-tap.
         """
         if self._busy or self._recording or self._prepared:
             return
@@ -150,9 +154,11 @@ class RecordingController(QObject):
         self._busy = True
         self._countdown = _WARMUP_SECONDS
         self._emit()
+        # Yield to the event loop — UI repaints with busy state, then
+        # camera startup runs in the next tick.
+        QTimer.singleShot(0, self._begin_camera_start)
 
-        # Start the camera NOW (recording to file) so the ffmpeg→GStreamer
-        # UDP pipeline is already stable when the countdown ends.
+    def _begin_camera_start(self) -> None:
         try:
             preview = self._camera.start_recording()
             # Skip the control-window preview — the user sees themselves on the

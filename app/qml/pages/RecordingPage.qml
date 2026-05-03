@@ -225,8 +225,9 @@ Item {
                 visible: recordingController.isRecording
                 Layout.fillWidth: true
                 implicitHeight: 60
-                text: "Stop Recording"
+                text: recordingController.isBusy ? "Stopping…" : "Stop Recording"
                 variant: "danger"
+                enabled: !recordingController.isBusy
                 onClicked: recordingController.stopRecording()
             }
 

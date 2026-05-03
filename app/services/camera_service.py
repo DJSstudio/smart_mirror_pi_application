@@ -123,25 +123,31 @@ class CameraService:
     def _pick(self, raise_on_missing: bool = True, prefer_url_stream: bool = False):
         """Choose adapter.
 
-        - USB recording (low latency): prefer Qt's QMediaCaptureSession path
-        - USB live_compare / preview: needs URL stream → always legacy ffmpeg
-        - Pi camera: rpicam-vid in both cases
-        - Override with camera_backend = "usb_ffmpeg" to force legacy on USB
+        USB ALWAYS uses the legacy ffmpeg pipeline + ffplay subprocess for
+        low-latency live preview.  The QtCamera (QMediaCaptureSession) path
+        is fundamentally broken on Pi 4/5 + PySide6 + IMX335:
+          - QMediaRecorder filesink/videoConvert pipeline fails to assemble
+          - V4L2 ResourceError mid-recording
+          - Qt's format enumeration excludes MJPEG → forced to YUYV @ 10fps
+        QtCamera path is opt-in only via env var SMART_MIRROR_USE_QTCAMERA=1
+        (kept in tree for future debugging, but never auto-selected).
         """
+        import os  # noqa: PLC0415
+        force_qt = os.environ.get("SMART_MIRROR_USE_QTCAMERA") == "1"
         pref = str(self._settings.get("camera_backend", "auto"))
-        usb_qt_ready = self._qt_usb is not None and not prefer_url_stream
+        qt_usable = (
+            force_qt and self._qt_usb is not None and not prefer_url_stream
+        )
 
         if pref == "raspberry_pi" and self._pi.is_available():
             return self._pi
-        if pref == "usb_ffmpeg" and self._usb.is_available():
-            return self._usb
-        if pref == "usb" and self._usb.is_available():
-            return self._qt_usb if usb_qt_ready else self._usb
+        if pref in ("usb", "usb_qt", "usb_ffmpeg") and self._usb.is_available():
+            return self._qt_usb if qt_usable else self._usb
         # auto
         if self._pi.is_available():
             return self._pi
         if self._usb.is_available():
-            return self._qt_usb if usb_qt_ready else self._usb
+            return self._qt_usb if qt_usable else self._usb
         if raise_on_missing:
             raise RuntimeError(
                 "No camera backend available. "

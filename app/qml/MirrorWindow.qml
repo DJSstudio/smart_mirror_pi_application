@@ -182,16 +182,17 @@ ApplicationWindow {
     }
 
     // ── Live preview (recording mode) ────────────────────────────────
-    // Two paths:
-    //  1) Qt-native (USB via QMediaCaptureSession) — VideoOutput owns its
-    //     sink; we pass it to qtCamera.attachSink() so the capture session
-    //     pushes frames to it directly. Zero encode-decode latency.
-    //  2) Legacy stream URL (Pi camera via rpicam-vid → UDP MPEGTS) — use
-    //     MediaPlayer as before.
+    // The actual video frames are displayed by an external ffplay process
+    // launched by LivePreviewPlayer (Python side) — it has near-zero latency
+    // versus Qt's MediaPlayer + MPEGTS pipeline.  This QML component is
+    // intentionally minimal/transparent so the QML overlays (countdown,
+    // REC badge, framing guide) draw on top of the ffplay window.
+    //
+    // The Qt-camera fallback path is kept for camera_backend = "usb_qt".
     Component {
         id: livePreviewComp
         Item {
-            // Path 1: Qt camera direct
+            // Qt-camera direct path (only active if user opted into "usb_qt")
             VideoOutput {
                 id: qtLiveOut
                 anchors.fill: parent
@@ -204,23 +205,9 @@ ApplicationWindow {
                     if (qtCamera) qtCamera.detachSink()
                 }
             }
-
-            // Path 2: legacy URL stream
-            MediaPlayer {
-                id: livePlayer
-                source: (qtCamera && qtCamera.active) ? "" : mirrorDisplay.primarySource
-                loops: MediaPlayer.Infinite
-                videoOutput: legacyLiveOut
-                audioOutput: AudioOutput { muted: true }
-                onSourceChanged: { stop(); if (source.toString().length) play() }
-            }
-
-            VideoOutput {
-                id: legacyLiveOut
-                anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
-                visible: !(qtCamera && qtCamera.active)
-            }
+            // Otherwise the area is left transparent — ffplay subprocess
+            // (spawned by LivePreviewPlayer) renders the camera underneath
+            // this Qt window.  No MediaPlayer here on purpose.
         }
     }
 
