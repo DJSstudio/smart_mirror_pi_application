@@ -126,14 +126,15 @@ class UsbCameraAdapter(BaseCameraAdapter):
 # ---------------------------------------------------------------------------
 
 def _is_video_capture_device(device: str) -> bool:
-    """Probe a /dev/videoN node to verify it advertises video capture formats.
+    """Probe a /dev/videoN node to verify it is a video CAPTURE device,
+    not a metadata-only sibling node.
 
     UVC USB cameras typically register multiple /dev/videoN nodes:
-      - One for actual video capture (has formats listed)
-      - One for metadata (no video formats)
-    On Pi 4 the metadata node sometimes appears first in v4l2-ctl listing
-    and gets picked, then ffmpeg fails with "Not a video capture device".
-    Filter by querying each candidate's --list-formats output.
+      - One for video capture: ``v4l2-ctl --list-formats`` shows
+        ``Type: Video Capture`` and lists video formats (YUYV/MJPEG/etc.)
+      - One for metadata: shows ``Type: Metadata Capture`` and lists only
+        ``UVCH``/metadata formats
+    Both have ``[N]:`` format lines, so we must check the Type explicitly.
     """
     if not shutil.which("v4l2-ctl"):
         return True  # can't probe, assume valid
@@ -142,13 +143,12 @@ def _is_video_capture_device(device: str) -> bool:
             ["v4l2-ctl", "--device", device, "--list-formats"],
             capture_output=True, text=True, timeout=3,
         )
-        # A real capture device lists at least one "[N]: ..." format line.
-        # Metadata-only devices return empty or "VIDIOC_ENUM_FMT: failed".
-        for line in result.stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("[") and "]" in stripped:
-                return True
-        return False
+        is_video = "Type: Video Capture" in result.stdout
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).info(
+            "Device %s: video_capture=%s", device, is_video,
+        )
+        return is_video
     except Exception:  # noqa: BLE001
         return True  # don't penalize on probe failure
 
