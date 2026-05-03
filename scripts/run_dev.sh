@@ -43,11 +43,13 @@ if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then
     export GST_GL_PLATFORM="${GST_GL_PLATFORM:-egl}"
 fi
 
-# Prefer software H.264 decoder (avdec_h264) over the V4L2 path.  On Pi 5
-# there is no V4L2 H.264 hardware decoder; auto-plugging v4l2h264dec produces
-# green output.  On Pi 4 the V4L2 hardware decoder also crashes on
-# -tune zerolatency streams, so software decode is the safe default.
-export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50}"
+# GStreamer plugin ranks for Qt Multimedia:
+#   avdec_h264:256, v4l2h264dec:50 — prefer software H264 decoder (Pi 5 has no
+#     V4L2 hardware H264 decoder; Pi 4's crashes on -tune zerolatency streams)
+#   libcamerasrc:0 — disable libcamera enumeration so Qt's QMediaDevices uses
+#     the v4l2src path instead.  libcamera reports bcm2835-isp pipeline stages
+#     as "cameras" but cannot see USB v4l2 cameras OR our v4l2loopback device.
+export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50,libcamerasrc:0}"
 
 export PYTHONUNBUFFERED=1
 

@@ -47,7 +47,7 @@ fi
 
 # Prefer software H264 decoder over the Pi V4L2M2M path which crashes on
 # -tune zerolatency streams.
-export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50}"
+export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h264dec:50,libcamerasrc:0}"
 
 export PYTHONUNBUFFERED=1
 
