@@ -216,16 +216,33 @@ ApplicationWindow {
                 audioOutput: AudioOutput { muted: false; volume: 1.0 }
                 Component.onCompleted: play()
                 onSourceChanged: { stop(); if (source.toString().length) play() }
+                // Report playback state back to controller via playbackService
+                onPositionChanged: if (playbackService) playbackService.setMirrorPosition(position)
+                onDurationChanged: if (playbackService) playbackService.setMirrorDuration(duration)
+                onPlaybackStateChanged: {
+                    if (playbackService)
+                        playbackService.setMirrorPlaying(playbackState === MediaPlayer.PlayingState)
+                }
             }
             VideoOutput {
                 id: videoOut
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
             }
+            // Listen for control commands from controller-screen UI
+            Connections {
+                target: playbackService
+                function onPlayRequested() { videoPlayer.play() }
+                function onPauseRequested() { videoPlayer.pause() }
+                function onSeekRequested(pos) { videoPlayer.position = pos }
+            }
         }
     }
 
     // ── Top/bottom compare ───────────────────────────────────────────
+    // Both panes share play/pause via playbackService.  The PRIMARY (top)
+    // pane is authoritative for position/duration reporting; the SECONDARY
+    // pane mirrors primary's seek for sync.
     Component {
         id: compareComp
         ColumnLayout {
@@ -238,6 +255,7 @@ ApplicationWindow {
                 source: mirrorDisplay.primarySource
                 labelText: mirrorDisplay.primaryLabel
                 fillCrop: mirrorDisplay.compareFillCrop
+                isPrimary: true
             }
 
             Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
@@ -248,6 +266,7 @@ ApplicationWindow {
                 source: mirrorDisplay.secondarySource
                 labelText: mirrorDisplay.secondaryLabel
                 fillCrop: mirrorDisplay.compareFillCrop
+                isPrimary: false
             }
         }
     }
@@ -270,6 +289,7 @@ ApplicationWindow {
                 labelText: mirrorDisplay.primaryLabel
                 fillCrop: mirrorDisplay.compareFillCrop
                 looping: true
+                isPrimary: true   // saved video is controllable via playbackService
             }
 
             Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
@@ -416,6 +436,10 @@ ApplicationWindow {
     }
 
     // ── MirrorPane: reusable single-video pane ───────────────────────
+    // When `isPrimary` is true, this pane reports its position/duration/
+    // playback state to playbackService and listens for play/pause/seek
+    // commands from it.  Secondary panes silently mirror primary's seeks
+    // (so split-compare stays in sync).
     component MirrorPane: Item {
         id: pane
 
@@ -426,6 +450,7 @@ ApplicationWindow {
         property bool looping: true
         property bool showLiveBadge: false
         property int rotation: 0
+        property bool isPrimary: false
 
         MediaPlayer {
             id: panePlayer
@@ -440,12 +465,32 @@ ApplicationWindow {
                         && pane.looping && pane.source.length > 0) {
                     Qt.callLater(function() { play() })
                 }
+                if (pane.isPrimary && playbackService) {
+                    playbackService.setMirrorPlaying(playbackState === MediaPlayer.PlayingState)
+                }
+            }
+            onPositionChanged: {
+                if (pane.isPrimary && playbackService)
+                    playbackService.setMirrorPosition(position)
+            }
+            onDurationChanged: {
+                if (pane.isPrimary && playbackService)
+                    playbackService.setMirrorDuration(duration)
             }
             onErrorOccurred: function(error, errorString) {
                 console.error("MirrorPane error (" + pane.source + "):", errorString)
                 if (pane.looping && pane.source.length > 0)
                     mirrorRetry.restart()
             }
+        }
+
+        // Listen for control commands from controller-screen UI.  All panes
+        // (primary AND secondary) react, so split-compare stays in sync.
+        Connections {
+            target: playbackService
+            function onPlayRequested() { panePlayer.play() }
+            function onPauseRequested() { panePlayer.pause() }
+            function onSeekRequested(pos) { panePlayer.position = pos }
         }
 
         Timer {

@@ -196,6 +196,53 @@ class QtCameraSession(QObject):
                     output_path)
         return output_path
 
+    def begin_recording(self, output_path: Path) -> Path:
+        """Begin recording on an ALREADY-RUNNING camera session.
+
+        Used by Live Compare's Record button: the camera is already
+        producing frames for preview, we just want to start writing them
+        to a file.  ffmpeg is spawned lazily on the next frame received.
+        """
+        if not self._active:
+            raise RuntimeError("Camera not running — start_preview first")
+        self._recording_path = output_path
+        self._frame_count = 0
+        self._first_frame_seen = False
+        LOGGER.info("Recording started on existing camera session → %s", output_path)
+        return output_path
+
+    def end_recording(self) -> Path | None:
+        """Stop recording but keep the camera running.
+
+        Used by Live Compare's Stop button.  Returns the path to the file
+        that was being written, or None if nothing was recorded.
+        """
+        recorded = self._recording_path
+        self._recording_path = None
+        if self._ffmpeg is not None:
+            ffm = self._ffmpeg
+            self._ffmpeg = None
+            try:
+                if ffm.stdin and not ffm.stdin.closed:
+                    try:
+                        ffm.stdin.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                ffm.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                LOGGER.warning("ffmpeg didn't exit cleanly, killing")
+                ffm.kill()
+                try:
+                    ffm.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
+            LOGGER.info("Live Compare recording ffmpeg exited (frames written: %d)",
+                        self._frame_count)
+        self._frame_count = 0
+        if recorded is not None and recorded.exists() and recorded.stat().st_size > 0:
+            return recorded
+        return None
+
     # ------------------------------------------------------------------
     # Frame handler — runs on Qt main thread (signal from QVideoSink)
     # ------------------------------------------------------------------

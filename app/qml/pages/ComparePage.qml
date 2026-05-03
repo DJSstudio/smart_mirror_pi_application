@@ -1,54 +1,14 @@
 // Compare page — top/bottom synchronized playback of two videos on the mirror.
-// Control screen has hidden players for scrub/play/pause; mirror renders both.
+// Controls operate on the mirror's MediaPlayers via playbackService signals.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import QtMultimedia
 import "../components"
 
 Item {
     id: root
 
-    property bool paused: false
     property bool fillCrop: settingsController ? settingsController.compareFillCrop : true
-
-    // Sync timer: every 150 ms align the two players
-    Timer {
-        id: syncTimer
-        interval: 150
-        repeat: true
-        running: !paused
-        onTriggered: _syncPlayers()
-    }
-
-    function _syncPlayers() {
-        if (!leftPlayer.playing && !paused) {
-            leftPlayer.play()
-            rightPlayer.play()
-            return
-        }
-        var diff = Math.abs(leftPlayer.position - rightPlayer.position)
-        if (diff > 200) {
-            rightPlayer.position = leftPlayer.position
-        }
-    }
-
-    function _togglePlay() {
-        paused = !paused
-        if (paused) {
-            leftPlayer.pause()
-            rightPlayer.pause()
-        } else {
-            leftPlayer.play()
-            rightPlayer.play()
-        }
-    }
-
-    function _seek(deltaMs) {
-        var pos = Math.max(0, leftPlayer.position + deltaMs)
-        leftPlayer.position = pos
-        rightPlayer.position = pos
-    }
 
     ColumnLayout {
         anchors { fill: parent; margins: 24 }
@@ -60,31 +20,9 @@ Item {
             title: "Compare Looks"
             subtitle: "Synchronized playback  ·  Mirror is showing top/bottom comparison."
             onBackClicked: {
-                syncTimer.stop()
-                leftPlayer.stop()
-                rightPlayer.stop()
                 if (playbackService) playbackService.close_active()
                 if (appController) appController.showGallery()
             }
-        }
-
-        // ── Hidden players for scrub/play/pause control ────────────────
-        // Video renders on the mirror only — these players provide position
-        // tracking for the scrub bar without decoding to a visible surface.
-        MediaPlayer {
-            id: leftPlayer
-            source: playbackService ? playbackService.primarySource : ""
-            loops: MediaPlayer.Infinite
-            audioOutput: AudioOutput { muted: true }
-            Component.onCompleted: play()
-        }
-
-        MediaPlayer {
-            id: rightPlayer
-            source: playbackService ? playbackService.secondarySource : ""
-            loops: MediaPlayer.Infinite
-            audioOutput: AudioOutput { muted: true }
-            Component.onCompleted: play()
         }
 
         // ── Mirror info panel (comparison plays on mirror only) ──────
@@ -138,13 +76,11 @@ Item {
         Slider {
             Layout.fillWidth: true
             from: 0
-            to: leftPlayer.duration > 0 ? leftPlayer.duration : 1
-            value: leftPlayer.position
+            to: playbackService && playbackService.mirrorDuration > 0
+                ? playbackService.mirrorDuration : 1
+            value: playbackService ? playbackService.mirrorPosition : 0
             stepSize: 500
-            onMoved: {
-                leftPlayer.position = value
-                rightPlayer.position = value
-            }
+            onMoved: { if (playbackService) playbackService.requestSeek(value) }
 
             background: Rectangle {
                 x: parent.leftPadding
@@ -159,7 +95,6 @@ Item {
                     color: "#c9bfb7"
                 }
             }
-
             handle: Rectangle {
                 x: parent.leftPadding + parent.visualPosition * (parent.availableWidth - width)
                 y: parent.topPadding + parent.availableHeight / 2 - height / 2
@@ -177,20 +112,20 @@ Item {
                 text: "−10s"
                 variant: "secondary"
                 implicitWidth: 72
-                onClicked: root._seek(-10000)
+                onClicked: { if (playbackService) playbackService.requestSeekRelative(-10000) }
             }
 
             AppButton {
                 Layout.fillWidth: true
-                text: root.paused ? "▶  Play" : "⏸  Pause"
-                onClicked: root._togglePlay()
+                text: (playbackService && playbackService.isPlaying) ? "⏸  Pause" : "▶  Play"
+                onClicked: { if (playbackService) playbackService.requestTogglePlayPause() }
             }
 
             AppButton {
                 text: "+10s"
                 variant: "secondary"
                 implicitWidth: 72
-                onClicked: root._seek(10000)
+                onClicked: { if (playbackService) playbackService.requestSeekRelative(10000) }
             }
 
             AppButton {
@@ -207,9 +142,6 @@ Item {
                 text: "✕  Close"
                 variant: "secondary"
                 onClicked: {
-                    syncTimer.stop()
-                    leftPlayer.stop()
-                    rightPlayer.stop()
                     if (playbackService) playbackService.close_active()
                     if (appController) appController.showGallery()
                 }

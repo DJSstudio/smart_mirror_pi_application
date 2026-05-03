@@ -124,6 +124,8 @@ def main() -> int:
         camera_service=camera_service,
         mirror_display=mirror_display,
         settings=settings,
+        paths=paths,
+        recording_service=recording_service,
     )
     # Auto-cleanup: delete video data for sessions idle > threshold.
     # Runs once at startup (before Qt) then every 30 min via QTimer below.
@@ -149,6 +151,7 @@ def main() -> int:
     from app.services.qt_camera_session import QtCameraSession  # noqa: PLC0415
     qt_camera_session = QtCameraSession()
     camera_service.attach_qt_camera_session(qt_camera_session)
+    playback_service.attach_qt_camera_session(qt_camera_session)
     # Cache the camera enumeration NOW, before any recording starts and
     # ffmpeg locks the source camera.  On Pi 4, Qt's GStreamer-based v4l2
     # enumeration can fail to list any cameras once ffmpeg is holding the

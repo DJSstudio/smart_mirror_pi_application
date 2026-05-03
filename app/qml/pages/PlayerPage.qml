@@ -1,6 +1,7 @@
 // Video player page — plays the selected video on the mirror, previews it here.
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import "../components"
 
 Item {
@@ -64,6 +65,63 @@ Item {
                     font.pixelSize: 14
                     color: "#6B635C"
                 }
+            }
+        }
+
+        // ── Scrub bar ────────────────────────────────────────────────
+        Slider {
+            Layout.fillWidth: true
+            from: 0
+            to: playbackService && playbackService.mirrorDuration > 0
+                ? playbackService.mirrorDuration : 1
+            value: playbackService ? playbackService.mirrorPosition : 0
+            stepSize: 500
+            onMoved: { if (playbackService) playbackService.requestSeek(value) }
+
+            background: Rectangle {
+                x: parent.leftPadding
+                y: parent.topPadding + parent.availableHeight / 2 - height / 2
+                width: parent.availableWidth
+                height: 4; radius: 2
+                color: "#e2dbd5"
+
+                Rectangle {
+                    width: parent.width * parent.parent.visualPosition
+                    height: parent.height; radius: 2
+                    color: "#c9bfb7"
+                }
+            }
+            handle: Rectangle {
+                x: parent.leftPadding + parent.visualPosition * (parent.availableWidth - width)
+                y: parent.topPadding + parent.availableHeight / 2 - height / 2
+                width: 16; height: 16; radius: 999
+                color: "#8c8077"
+            }
+        }
+
+        // ── Playback transport ───────────────────────────────────────
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+
+            AppButton {
+                text: "−10s"
+                variant: "secondary"
+                implicitWidth: 72
+                onClicked: { if (playbackService) playbackService.requestSeekRelative(-10000) }
+            }
+
+            AppButton {
+                Layout.fillWidth: true
+                text: (playbackService && playbackService.isPlaying) ? "⏸  Pause" : "▶  Play"
+                onClicked: { if (playbackService) playbackService.requestTogglePlayPause() }
+            }
+
+            AppButton {
+                text: "+10s"
+                variant: "secondary"
+                implicitWidth: 72
+                onClicked: { if (playbackService) playbackService.requestSeekRelative(10000) }
             }
         }
 
