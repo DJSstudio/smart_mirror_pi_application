@@ -312,48 +312,22 @@ def _is_video_capture(device: str) -> bool:
 
 
 def _resolve_source_device(hint: str | None) -> str | None:
-    """Pick the real USB camera device, excluding the loopback itself."""
+    """Pick the real USB camera device — glob /dev/video*, probe each, keep
+    the first one that's a single-planar Video Capture device (and isn't
+    the loopback itself).
+    """
     if hint and Path(hint).exists() and hint != LOOPBACK_DEVICE:
         return hint
 
-    candidates: list[str] = []
-    if shutil.which("v4l2-ctl"):
-        try:
-            result = subprocess.run(
-                ["v4l2-ctl", "--list-devices"],
-                capture_output=True, text=True, timeout=5,
-            )
-            include = False
-            for raw in result.stdout.splitlines():
-                line = raw.strip()
-                if not line:
-                    continue
-                if line.endswith(":"):
-                    lower = line.lower()
-                    include = (
-                        "bcm2835" not in lower
-                        and "isp" not in lower
-                        and "codec" not in lower
-                        and "loopback" not in lower
-                        and "mirrorpreview" not in lower
-                    )
-                elif include and line.startswith("/dev/video"):
-                    candidates.append(line)
-        except Exception:  # noqa: BLE001
-            pass
-
-    if not candidates:
-        candidates = sorted(glob.glob("/dev/video*"))
-
-    # Filter out the loopback itself + non-capture nodes (multiplanar/metadata)
-    for dev in sorted(set(candidates)):
+    all_paths = sorted(glob.glob("/dev/video*"))
+    LOGGER.info("Probing %d /dev/video* nodes for capture source: %s",
+                len(all_paths), all_paths)
+    for dev in all_paths:
         if dev == LOOPBACK_DEVICE:
             continue
         if _is_video_capture(dev):
             LOGGER.info("Source camera: %s", dev)
             return dev
-        else:
-            LOGGER.debug("Skipping %s (not a usable Video Capture device)", dev)
     return None
 
 

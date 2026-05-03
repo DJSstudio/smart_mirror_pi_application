@@ -164,42 +164,25 @@ def _is_video_capture_device(device: str) -> bool:
 
 
 def _detect_devices() -> list[str]:
-    """Return V4L2 capture device paths, filtering out non-capture nodes.
+    """Return V4L2 single-planar Video Capture device paths.
 
-    Two-stage filter:
-      1. Skip Pi codec/ISP groups (bcm2835/isp/codec) via v4l2-ctl --list-devices
-      2. For each remaining /dev/videoN, verify it advertises video capture
-         formats — UVC cameras register metadata nodes that look like video
-         devices but cannot be opened by ffmpeg.
+    Glob-and-probe: enumerate every /dev/video* and keep only nodes whose
+    `v4l2-ctl --list-formats` output reports `Type: Video Capture` AND has
+    at least one video format AND is NOT Multiplanar (which means codec/ISP).
+
+    The previous implementation parsed `v4l2-ctl --list-devices` group
+    headers ('bcm2835', 'codec', 'isp') and missed cameras whose group name
+    didn't match any of those keywords on this kernel.  The probe is more
+    reliable: it asks each device directly what it is, instead of guessing
+    from a name.
     """
-    candidates: list[str] = []
-    if shutil.which("v4l2-ctl"):
-        try:
-            result = subprocess.run(
-                ["v4l2-ctl", "--list-devices"],
-                capture_output=True, text=True, timeout=5,
-            )
-            include_block = False
-            for line in result.stdout.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if stripped.endswith(":"):
-                    lower = stripped.lower()
-                    include_block = (
-                        "bcm2835" not in lower
-                        and "isp" not in lower
-                        and "codec" not in lower
-                    )
-                elif include_block and stripped.startswith("/dev/video"):
-                    candidates.append(stripped)
-        except Exception:  # noqa: BLE001
-            pass
-    if not candidates:
-        candidates = sorted(glob.glob("/dev/video*"))
-
-    # Stage 2: keep only devices that actually expose video capture formats
-    capture_devices = [d for d in sorted(set(candidates)) if _is_video_capture_device(d)]
+    all_paths = sorted(glob.glob("/dev/video*"))
+    import logging  # noqa: PLC0415
+    log = logging.getLogger(__name__)
+    log.info("Probing %d /dev/video* nodes for capture capability: %s",
+             len(all_paths), all_paths)
+    capture_devices = [d for d in all_paths if _is_video_capture_device(d)]
+    log.info("Capture-capable devices: %s", capture_devices)
     return capture_devices
 
 
