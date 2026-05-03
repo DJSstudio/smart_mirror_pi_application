@@ -71,6 +71,7 @@ class QtCameraSession(QObject):
         # Recording state
         self._recording_path: Path | None = None
         self._recording_target_fps: int = 30
+        self._actual_fps: float = 30.0   # set when QCamera negotiates a format
         self._ffmpeg: subprocess.Popen | None = None
         self._first_frame_seen: bool = False
         self._frame_count: int = 0
@@ -169,7 +170,7 @@ class QtCameraSession(QObject):
                     device.description(), width, height, fps)
 
         self._camera = QCamera(device, self)
-        self._apply_best_format(self._camera, device, width, height, fps)
+        self._actual_fps = self._apply_best_format(self._camera, device, width, height, fps)
         self._capture.setCamera(self._camera)
         # Default to internal sink — frames start flowing immediately
         self._capture.setVideoSink(self._internal_sink)
@@ -245,11 +246,21 @@ class QtCameraSession(QObject):
     def _spawn_ffmpeg(self, frame: QVideoFrame) -> None:
         """Build an ffmpeg command tailored to the actual frame format and
         start it.  Called once on first frame received during recording.
+
+        The framerate passed to ffmpeg is the *actual* fps the camera is
+        delivering (negotiated by _apply_best_format), NOT the requested
+        fps from settings.  Mismatching causes the file's duration metadata
+        to be wrong (e.g., declaring 60fps when actual is 10fps stamps the
+        file as 6× shorter than it really is, breaking trim_mp4 downstream).
         """
         fmt = frame.pixelFormat()
         w = frame.width()
         h = frame.height()
-        fps = self._recording_target_fps
+        # Use the actual negotiated fps so file metadata matches frame timing.
+        # Round to nearest integer because ffmpeg -framerate prefers integers
+        # for stable timestamping; non-integer fps values like 29.97 work
+        # but integer is safer.
+        fps = max(1, int(round(self._actual_fps)))
         out_path = self._recording_path
 
         cmd: list[str]
@@ -267,7 +278,7 @@ class QtCameraSession(QObject):
                 "-movflags", "+faststart",
                 "-y", str(out_path),
             ]
-            LOGGER.info("Recorder: MJPEG passthrough → libx264, %dx%d @ %dfps",
+            LOGGER.info("Recorder: MJPEG passthrough → libx264, %dx%d @ %dfps (actual)",
                         w, h, fps)
         else:
             # Raw frames — map Qt's pixel format name to an ffmpeg pixel format
@@ -289,7 +300,7 @@ class QtCameraSession(QObject):
                 "-movflags", "+faststart",
                 "-y", str(out_path),
             ]
-            LOGGER.info("Recorder: raw %s → libx264, %dx%d @ %dfps",
+            LOGGER.info("Recorder: raw %s → libx264, %dx%d @ %dfps (actual)",
                         ff_pix, w, h, fps)
 
         self._ffmpeg = subprocess.Popen(
@@ -400,14 +411,15 @@ class QtCameraSession(QObject):
         return cameras[0]
 
     @staticmethod
-    def _apply_best_format(camera: QCamera, device, width: int, height: int, fps: int) -> None:
+    def _apply_best_format(camera: QCamera, device, width: int, height: int, fps: int) -> float:
         """Pick the best camera format: matching resolution → MJPEG preferred
-        → highest fps ≤ requested.  Logs every option for diagnostics.
+        → highest fps ≤ requested.  Returns the actual fps the camera will
+        deliver (which may be lower than requested).
         """
         formats = device.videoFormats()
         if not formats:
             LOGGER.warning("Camera %s reports no formats", device.description())
-            return
+            return float(fps)
 
         for fmt in formats:
             LOGGER.info("  available: %dx%d  fps=%.1f-%.1f  pixel=%s",
@@ -434,10 +446,12 @@ class QtCameraSession(QObject):
 
         best = min(candidates, key=score)
         camera.setCameraFormat(best)
+        actual_fps = best.maxFrameRate()
         LOGGER.info("QCamera selected: %dx%d @ %.0ffps  pixel=%s  (requested %dx%d @ %dfps)",
                     best.resolution().width(), best.resolution().height(),
-                    best.maxFrameRate(), best.pixelFormat().name,
+                    actual_fps, best.pixelFormat().name,
                     width, height, fps)
+        return float(actual_fps)
 
 
 # ---------------------------------------------------------------------------
