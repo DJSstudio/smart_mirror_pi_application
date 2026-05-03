@@ -36,6 +36,9 @@ class PlaybackService(QObject):
 
     # Signals → controller QML (when mirror state changes)
     playbackStateChanged = Signal()
+    # Emitted after a Live Compare recording is saved to the gallery; main.py
+    # connects this to gallery_controller.refresh() so the new entry appears.
+    videoSaved = Signal(str)   # video title
 
     def __init__(
         self,
@@ -214,6 +217,8 @@ class PlaybackService(QObject):
             prepared = self._recording_svc.prepare_review(capture, trim_start=0.0)
             video = self._recording_svc.save_prepared(prepared)
             LOGGER.info("Live Compare recording saved: %s", video.title)
+            # Tell observers (gallery_controller) to refresh
+            self.videoSaved.emit(video.title)
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("Failed to save Live Compare recording: %s", exc)
 

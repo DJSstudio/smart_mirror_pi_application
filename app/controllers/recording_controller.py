@@ -85,6 +85,11 @@ class RecordingController(QObject):
         self._error = ""
         self._backend_label = camera_service.current_backend_label()
         self._prepared: PreparedRecording | None = None
+        # True when the camera adapter supports deferred recording (open
+        # camera in preview mode, begin file recording at T=0).  Decides
+        # whether prepare_review needs to trim the warmup-countdown out
+        # of the file or not.
+        self._deferred_recording = False
 
         # Background stop state — written by bg thread, read on main thread
         self._bg_result: PreparedRecording | None = None
@@ -159,23 +164,31 @@ class RecordingController(QObject):
         QTimer.singleShot(0, self._begin_camera_start)
 
     def _begin_camera_start(self) -> None:
+        # Try deferred-recording mode first: open camera now (warming it up
+        # during the countdown) but DON'T start writing the file yet — we
+        # do that at T=0 in _start_now().  This means the file contains
+        # only the actual recording, no countdown — no trim needed.
+        # Falls back to old immediate-recording mode (with 5s warmup trim)
+        # for adapters that don't support split start/record (legacy ffmpeg
+        # path, Pi camera path).
         try:
-            preview = self._camera.start_recording()
-            # Skip the control-window preview — the user sees themselves on the
-            # mirror.  Omitting this eliminates an entire GStreamer H.264 decode
-            # pipeline, roughly halving the CPU/GPU load on the Pi and removing
-            # the main source of preview lag.
-            self._warmup_mirror_url = preview.mirror_preview_url
-            self._backend_label = preview.backend
-        except Exception as exc:  # noqa: BLE001
-            self._busy = False
-            self._countdown = 0
-            self._warmup_mirror_url = ""
-            self._set_error(str(exc))
-            self._app.showError(str(exc))
-            self._emit()
-            return
+            preview = self._camera.start_preview_only()
+            self._deferred_recording = True
+        except Exception:  # noqa: BLE001
+            try:
+                preview = self._camera.start_recording()
+                self._deferred_recording = False
+            except Exception as exc:  # noqa: BLE001
+                self._busy = False
+                self._countdown = 0
+                self._warmup_mirror_url = ""
+                self._set_error(str(exc))
+                self._app.showError(str(exc))
+                self._emit()
+                return
 
+        self._warmup_mirror_url = preview.mirror_preview_url
+        self._backend_label = preview.backend
         self._emit()
         self._cd_timer.start()
 
@@ -192,6 +205,10 @@ class RecordingController(QObject):
         self._busy = True
         self._emit()
 
+        # Snapshot the deferred-recording flag — bg thread uses it to decide
+        # whether to trim the warmup-countdown out of the file.
+        deferred = self._deferred_recording
+
         def _bg() -> None:
             error = ""
             result = None
@@ -200,8 +217,11 @@ class RecordingController(QObject):
                 if capture is None:
                     error = "Recording stopped but no file was produced."
                 else:
+                    # Deferred recording started AT countdown end → no trim.
+                    # Immediate recording (legacy adapters) needs warmup trim.
+                    trim = 0.0 if deferred else float(_WARMUP_SECONDS)
                     result = self._recording_svc.prepare_review(
-                        capture, trim_start=float(_WARMUP_SECONDS)
+                        capture, trim_start=trim,
                     )
             except Exception as exc:  # noqa: BLE001
                 error = str(exc)
@@ -320,12 +340,23 @@ class RecordingController(QObject):
             self._emit()
 
     def _start_now(self) -> None:
-        # The camera was already started in beginRecording() for the warm-up.
-        # All we need to do here is transition to the official recording state.
+        # If the adapter supports deferred recording, begin writing the file
+        # NOW (countdown just hit 0).  This way the file contains only the
+        # actual recording, with no countdown to trim out later.
+        if self._deferred_recording:
+            try:
+                if not self._camera.begin_writing_file():
+                    LOGGER.warning(
+                        "begin_writing_file returned False — falling back to trim mode"
+                    )
+                    self._deferred_recording = False
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("begin_writing_file failed (%s) — falling back to trim mode", exc)
+                self._deferred_recording = False
+        # Transition to recording state
         self._recording = True
         self._busy = False
         self._elapsed = 0
-        # _preview_source is already set; mirror is already showing live preview.
         self._el_timer.start()
         self._app.showStatus("Recording…")
         self._emit()

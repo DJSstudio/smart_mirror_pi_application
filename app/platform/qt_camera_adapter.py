@@ -79,6 +79,21 @@ class QtCameraAdapter(BaseCameraAdapter):
             recording=False,
         )
 
+    def begin_writing_file(self, work_dir: Path) -> Path | None:
+        """Begin writing the recording file on an already-running camera.
+        Used by the deferred-recording flow: the camera was opened during
+        countdown via start_preview, but file recording only begins when
+        the countdown ends so the file doesn't include the countdown period.
+        Returns the path being written to (or None if camera isn't running).
+        """
+        import time  # noqa: PLC0415
+        if not self._session.is_alive():
+            return None
+        cap_path = work_dir / f"capture_qcam_{int(time.time() * 1000)}.mp4"
+        self._session.begin_recording(cap_path)
+        self._capture_path = cap_path
+        return cap_path
+
     def stop(self, discard: bool = False) -> CompletedCapture | None:
         recorded = self._session.stop()
         cap_path = self._capture_path

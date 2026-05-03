@@ -70,6 +70,21 @@ class CameraService:
         capture = self._stop_any(discard=discard)
         return capture
 
+    def begin_writing_file(self) -> bool:
+        """Switch the active adapter from preview-only to recording.  Used
+        by recording_controller's deferred-recording flow: opens camera
+        early for warmup, then begins file recording when countdown ends.
+        Returns True if the adapter supports deferred recording AND the
+        camera is currently in preview mode; False otherwise (caller
+        should fall back to start_recording).
+        """
+        if self._active is None:
+            return False
+        if not hasattr(self._active, "begin_writing_file"):
+            return False
+        path = self._active.begin_writing_file(self._paths.temp_dir)
+        return path is not None
+
     def is_active(self) -> bool:
         return self._active is not None
 

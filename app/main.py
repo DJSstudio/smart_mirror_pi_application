@@ -181,6 +181,12 @@ def main() -> int:
         app_controller=app_ctrl,
         session_controller=session_ctrl,
     )
+    # When PlaybackService saves a Live Compare recording, refresh the
+    # gallery so the new entry appears immediately.
+    playback_service.videoSaved.connect(lambda _title: (
+        gallery_ctrl.refresh(),
+        session_ctrl.refresh(),
+    ))
     recording_ctrl = RecordingController(
         camera_service=camera_service,
         recording_service=recording_service,
