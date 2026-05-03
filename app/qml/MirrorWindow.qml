@@ -86,6 +86,79 @@ ApplicationWindow {
             }
         }
 
+        // ── REC + elapsed time overlay (top-right, orientation-aware) ──
+        // A wrapper Item rotated by mirrorOrientationDegrees with the badge
+        // anchored to top-right.  After rotation the badge appears at the
+        // user's perceived top-right regardless of physical mirror orientation.
+        Item {
+            id: recOverlayWrapper
+            visible: recordingController
+                     && recordingController.isRecording
+                     && recordingController.countdown === 0
+            anchors.centerIn: parent
+
+            // Swap dimensions for 90°/270° rotations so the badge lands
+            // at the corner the user sees as top-right.
+            property int orient: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+            width: (orient === 90 || orient === 270) ? parent.height : parent.width
+            height: (orient === 90 || orient === 270) ? parent.width  : parent.height
+
+            transform: Rotation {
+                angle: recOverlayWrapper.orient
+                origin.x: recOverlayWrapper.width / 2
+                origin.y: recOverlayWrapper.height / 2
+            }
+
+            Rectangle {
+                anchors { top: parent.top; right: parent.right; margins: 24 }
+                radius: 999
+                width: _mirrorRecRow.implicitWidth + 24
+                height: 48
+                color: "#CC8B2E2E"
+                border.width: 1
+                border.color: "#FF6B6B"
+
+                RowLayout {
+                    id: _mirrorRecRow
+                    anchors.centerIn: parent
+                    spacing: 12
+
+                    Rectangle {
+                        width: 14; height: 14; radius: 999
+                        color: "#FF6B6B"
+
+                        SequentialAnimation on opacity {
+                            running: recOverlayWrapper.visible
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.25; duration: 600 }
+                            NumberAnimation { to: 1.0;  duration: 600 }
+                        }
+                    }
+
+                    Text {
+                        text: "REC"
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1.5
+                        color: "#FFFFFF"
+                    }
+
+                    Rectangle {
+                        width: 1; height: 22
+                        color: "#88FFFFFF"
+                    }
+
+                    Text {
+                        text: recordingController ? recordingController.elapsedText : "00:00"
+                        font.family: "Noto Sans Mono, Consolas, monospace"
+                        font.pixelSize: 18
+                        font.weight: Font.Medium
+                        color: "#FFFFFF"
+                    }
+                }
+            }
+        }
+
         // ── Pre-recording countdown overlay ──────────────────────────
         // Shown while the camera pipeline warms up so subjects see a
         // clean countdown instead of pixelated warm-up frames.

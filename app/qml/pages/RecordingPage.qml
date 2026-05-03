@@ -113,16 +113,20 @@ Item {
                 visible: recordingController.isRecording
                          && recordingController.countdown === 0
                          && !recordingController.hasReview
-                spacing: 24
+                spacing: 14
 
-                // Mirror disc — gold ring for "now recording" warmth
+                // Mirror disc — gold ring for "now recording" warmth.
+                // Sized relative to the surface so the layout never
+                // overflows on small controller screens.
                 Item {
                     Layout.alignment: Qt.AlignHCenter
-                    width: 120; height: 120
+                    Layout.preferredWidth: discSize
+                    Layout.preferredHeight: discSize
+                    property real discSize: Math.min(64, Math.min(surface.width, surface.height) * 0.18)
 
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 120; height: 120; radius: 999
+                        width: parent.width; height: parent.height; radius: 999
                         color: "transparent"
                         border.width: 2
                         border.color: "#C4956A"
@@ -130,13 +134,13 @@ Item {
                     }
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 96; height: 96; radius: 999
+                        width: parent.width * 0.8; height: parent.height * 0.8; radius: 999
                         color: "#1C1917"
 
                         Text {
                             anchors.centerIn: parent
                             text: "🪞"
-                            font.pixelSize: 44
+                            font.pixelSize: parent.width * 0.45
                         }
                     }
                 }
@@ -144,17 +148,17 @@ Item {
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: "Look at the mirror"
-                    font.pixelSize: 24
+                    font.pixelSize: 16
                     font.weight: Font.Medium
                     color: "#E8DCCB"
                 }
 
-                // Elapsed time — large, clear
+                // Elapsed time — clear and readable, responsive size
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: recordingController.elapsedText
                     font.family: "Noto Sans Mono, Consolas, monospace"
-                    font.pixelSize: 38
+                    font.pixelSize: Math.min(28, Math.min(surface.width, surface.height) * 0.07)
                     font.weight: Font.Light
                     color: "#C4956A"
                 }
@@ -162,7 +166,7 @@ Item {
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: "Tap Stop when you are done"
-                    font.pixelSize: 13
+                    font.pixelSize: 12
                     color: "#6B635C"
                 }
             }
@@ -182,12 +186,14 @@ Item {
                     anchors.centerIn: parent
                     spacing: 24
 
-                    // Big numeral — the focus
+                    // Big numeral — the focus.  Sized relative to the
+                    // surface so it scales down on small controller screens
+                    // without pushing other content out.
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         text: recordingController.countdown.toString()
                         font.family: "Noto Serif, Georgia, serif"
-                        font.pixelSize: 160
+                        font.pixelSize: Math.min(140, Math.min(surface.width, surface.height) * 0.45)
                         font.weight: Font.Light
                         color: "#FFF8F4"
                         opacity: 0.95
@@ -195,7 +201,7 @@ Item {
                         SequentialAnimation on scale {
                             running: recordingController.countdown > 0
                             loops: Animation.Infinite
-                            NumberAnimation { to: 1.18; duration: 280; easing.type: Easing.OutQuad }
+                            NumberAnimation { to: 1.15; duration: 280; easing.type: Easing.OutQuad }
                             NumberAnimation { to: 1.0;  duration: 720; easing.type: Easing.InOutQuad }
                         }
                     }
@@ -203,18 +209,16 @@ Item {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         text: "Get ready"
-                        font.pixelSize: 18
+                        font.pixelSize: 14
                         font.weight: Font.Light
                         color: "#C4956A"
                         opacity: 0.85
                     }
 
-                    Item { Layout.preferredHeight: 24 }   // spacer
-
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         text: "🪞  Look at the mirror"
-                        font.pixelSize: 14
+                        font.pixelSize: 12
                         color: "#9A8F84"
                     }
                 }
