@@ -47,13 +47,15 @@ class CameraService:
         )
 
     def start_preview_only(self) -> CameraPreview:
-        """Used by Live Compare — needs a stream URL the mirror MediaPlayer
-        can render alongside the saved video.  Always use the legacy adapters
-        (ffmpeg → UDP) for this; the Qt camera path produces frames via
-        QVideoSink which the compare-mode QML can't consume.
+        """Open the camera for preview-only (no recording).  Used by Live
+        Compare.  Routes through the same adapter as recording — for USB
+        that's the Qt path (QCamera → QVideoSink), so the live half of
+        Live Compare gets the same low-latency rendering as the main
+        recording flow.  Mirror's liveCompareComp uses VideoOutput +
+        attachSink for the live pane (no URL needed).
         """
         self._stop_any(discard=True)
-        adapter = self._pick(prefer_url_stream=True)
+        adapter = self._pick()
         self._active = adapter
         return adapter.start_preview(
             work_dir=self._paths.temp_dir,
@@ -115,16 +117,18 @@ class CameraService:
         self._active = None
         return result
 
-    def _pick(self, raise_on_missing: bool = True, prefer_url_stream: bool = False):
+    def _pick(self, raise_on_missing: bool = True):
         """Choose camera adapter.
 
         Decision tree for USB:
           - "usb" / "auto"  → QtCameraAdapter (QCamera preview + ffmpeg-pipe recording)
           - "usb_ffmpeg"    → legacy ffmpeg+UDP+MediaPlayer (laggy fallback)
-          - Live Compare always forces legacy (needs URL stream for compareComp)
+        Used by both recording and Live Compare; the Qt path now renders
+        the live pane in QML via VideoOutput so Live Compare benefits from
+        the same low-latency preview as recording.
         """
         pref = str(self._settings.get("camera_backend", "auto"))
-        qt_ready = self._qt_usb is not None and not prefer_url_stream
+        qt_ready = self._qt_usb is not None
 
         if pref == "raspberry_pi" and self._pi.is_available():
             return self._pi

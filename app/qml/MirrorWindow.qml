@@ -253,6 +253,10 @@ ApplicationWindow {
     }
 
     // ── Live compare (saved top + live feed bottom) ───────────────────
+    // Top: saved video file via MediaPlayer.
+    // Bottom: live USB camera via QCamera direct (same low-latency path as
+    // the recording-mode live preview).  No MediaPlayer for the live half
+    // — the QtCameraSession pushes frames into the VideoOutput's videoSink.
     Component {
         id: liveCompareComp
         ColumnLayout {
@@ -270,15 +274,50 @@ ApplicationWindow {
 
             Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
 
-            MirrorPane {
+            // Live camera pane — Qt-direct, same approach as livePreviewComp
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                source: mirrorDisplay.secondarySource
-                labelText: mirrorDisplay.secondaryLabel
-                fillCrop: mirrorDisplay.compareFillCrop
-                looping: true
-                muted: true
-                showLiveBadge: true
+
+                VideoOutput {
+                    id: liveCmpOut
+                    anchors.fill: parent
+                    fillMode: mirrorDisplay.compareFillCrop
+                        ? VideoOutput.PreserveAspectCrop
+                        : VideoOutput.PreserveAspectFit
+                    Component.onCompleted: {
+                        if (qtCamera) qtCamera.attachSink(liveCmpOut.videoSink)
+                    }
+                    Component.onDestruction: {
+                        if (qtCamera) qtCamera.detachSink()
+                    }
+                }
+
+                // "● LIVE" badge so users know the bottom pane is real-time
+                Rectangle {
+                    visible: true
+                    anchors { right: parent.right; top: parent.top; margins: 18 }
+                    radius: 999
+                    color: "#bb7a1414"
+                    width: liveBadgeText.implicitWidth + 16
+                    height: 28
+
+                    Text {
+                        id: liveBadgeText
+                        anchors.centerIn: parent
+                        text: "● LIVE"
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                        color: "#ffb8b8"
+
+                        SequentialAnimation on opacity {
+                            running: true
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.3; duration: 800 }
+                            NumberAnimation { to: 1.0; duration: 800 }
+                        }
+                    }
+                }
             }
         }
     }
