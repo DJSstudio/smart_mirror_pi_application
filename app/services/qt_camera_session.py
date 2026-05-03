@@ -243,9 +243,6 @@ class QtCameraSession(QObject):
                     pass
             LOGGER.info("Live Compare recording ffmpeg exited (frames written: %d)",
                         self._frame_count)
-            # Fix the file's playback timing if camera under-delivered frames
-            if recorded is not None:
-                self._correct_recording_timing(recorded)
         self._frame_count = 0
         if recorded is not None and recorded.exists() and recorded.stat().st_size > 0:
             return recorded
@@ -426,9 +423,6 @@ class QtCameraSession(QObject):
                     pass
             LOGGER.info("Recorder ffmpeg exited (frames written: %d)",
                         self._frame_count)
-            # Fix the file's playback timing if camera under-delivered frames
-            if recorded_path is not None:
-                self._correct_recording_timing(recorded_path)
         self._frame_count = 0
         self._first_frame_seen = False
 
@@ -449,65 +443,6 @@ class QtCameraSession(QObject):
         if recorded_path is not None and recorded_path.exists() and recorded_path.stat().st_size > 0:
             return recorded_path
         return None
-
-    def _correct_recording_timing(self, file_path: Path) -> None:
-        """Fix the file's playback duration so it matches actual wall-clock.
-
-        ffmpeg stamps frames at intervals based on the declared -framerate,
-        which is the camera's *advertised max*.  Cameras typically deliver
-        fewer frames per second than advertised (lighting/CPU/USB jitter),
-        so the file ends up shorter than the actual recording.  E.g. 360
-        frames over 15s wallclock declared at 30fps = 12s in the file.
-
-        This re-stamps the file's PTS so playback matches wallclock.
-        Re-encodes (libx264 ultrafast) — Pi 4 handles short clips fine.
-        """
-        if not file_path.exists() or self._frame_count == 0:
-            return
-        wall_duration = self._last_frame_wallclock - self._recording_start_wallclock
-        if wall_duration <= 0:
-            return
-        actual_fps = self._frame_count / wall_duration
-        declared_fps = max(1.0, self._actual_fps)
-        # If we're within 5% of declared, the difference is negligible
-        if abs(actual_fps - declared_fps) / declared_fps < 0.05:
-            return
-        scale = declared_fps / actual_fps   # >1 means file is too short, stretch it
-        LOGGER.info(
-            "Fixing recording timing: declared=%.1ffps actual=%.1ffps "
-            "(frames=%d wall=%.1fs file=%.1fs) → setpts*%.3f",
-            declared_fps, actual_fps,
-            self._frame_count, wall_duration, self._frame_count / declared_fps,
-            scale,
-        )
-        fixed = file_path.with_name(file_path.stem + "_fixed.mp4")
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg", "-hide_banner", "-loglevel", "warning",
-                    "-i", str(file_path),
-                    "-filter:v", f"setpts={scale:.6f}*PTS",
-                    "-c:v", "libx264",
-                    "-preset", "ultrafast",
-                    "-pix_fmt", "yuv420p",
-                    "-an",
-                    "-movflags", "+faststart",
-                    "-y", str(fixed),
-                ],
-                check=True, timeout=60,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            file_path.unlink()
-            fixed.rename(file_path)
-            LOGGER.info("Recording timing corrected → %s", file_path)
-        except subprocess.CalledProcessError as exc:
-            LOGGER.warning("Timing correction failed (keeping original): %s",
-                           exc.stderr.decode(errors="replace") if exc.stderr else exc)
-            fixed.unlink(missing_ok=True)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("Timing correction error (keeping original): %s", exc)
-            fixed.unlink(missing_ok=True)
 
     @Slot(result=bool)
     def is_alive(self) -> bool:
