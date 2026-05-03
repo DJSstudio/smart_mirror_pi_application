@@ -152,44 +152,6 @@ def main() -> int:
 
     screen_manager = ScreenManager(app, settings)
 
-    # ----------------------------------------------------------------
-    # Low-latency live preview — spawns ffplay over the mirror screen
-    # whenever mirror enters live_preview mode.  Bypasses Qt MediaPlayer's
-    # ~500 ms MPEGTS buffering for a near-real-time mirror feel.
-    # ----------------------------------------------------------------
-    from app.services.live_preview_player import LivePreviewPlayer  # noqa: PLC0415
-    live_preview_player = LivePreviewPlayer()
-
-    def _on_mirror_changed():
-        if mirror_display.mode != "live_preview":
-            live_preview_player.stop()
-            return
-        url = mirror_display.primarySource
-        if not url:
-            LOGGER.info(
-                "live_preview mode entered without a stream URL — "
-                "skipping ffplay (Qt camera path is in use, not legacy ffmpeg)"
-            )
-            return
-        screens = app.screens()
-        if len(screens) > 1:
-            mirror_idx = int(settings.get("mirror_screen_index", 1))
-            mirror_screen = screens[min(mirror_idx, len(screens) - 1)]
-        else:
-            mirror_screen = screens[0]
-        geo = mirror_screen.geometry()
-        LOGGER.info(
-            "Starting ffplay for mirror live preview: url=%s screen=%dx%d+%d+%d",
-            url, geo.width(), geo.height(), geo.x(), geo.y(),
-        )
-        live_preview_player.start(
-            url=url,
-            screen_x=geo.x(), screen_y=geo.y(),
-            screen_w=geo.width(), screen_h=geo.height(),
-        )
-
-    mirror_display.changed.connect(_on_mirror_changed)
-
     # Periodic cleanup — runs every 30 minutes while the app is open.
     _cleanup_timer = QTimer()
     _cleanup_timer.setInterval(30 * 60 * 1_000)  # 30 minutes
@@ -318,10 +280,6 @@ def main() -> int:
     # ----------------------------------------------------------------
     def _on_quit() -> None:
         LOGGER.info("Shutting down Smart Mirror Pi")
-        try:
-            live_preview_player.stop()
-        except Exception:  # noqa: BLE001
-            pass
         try:
             playback_service.close_active()
         except Exception:  # noqa: BLE001

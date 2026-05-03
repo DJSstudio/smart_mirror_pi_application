@@ -182,22 +182,18 @@ ApplicationWindow {
     }
 
     // ── Live preview (recording mode) ────────────────────────────────
-    // The actual video frames are displayed by an external ffplay process
-    // launched by LivePreviewPlayer (Python side) — it has near-zero latency
-    // versus Qt's MediaPlayer + MPEGTS pipeline.  This QML component is
-    // intentionally minimal/transparent so the QML overlays (countdown,
-    // REC badge, framing guide) draw on top of the ffplay window.
-    //
-    // The Qt-camera fallback path is kept for camera_backend = "usb_qt".
+    // Architecture: ffmpeg subprocess captures the real USB camera and
+    // writes frames to /dev/video10 (v4l2loopback) AND records H.264 to file.
+    // QCamera (Python: QtCameraSession) opens /dev/video10 as a regular
+    // camera and pushes frames to the VideoOutput's videoSink for direct,
+    // low-latency rendering — same path proven by scripts/test_qcamera.py.
     Component {
         id: livePreviewComp
         Item {
-            // Qt-camera direct path (only active if user opted into "usb_qt")
             VideoOutput {
                 id: qtLiveOut
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
-                visible: qtCamera && qtCamera.active
                 Component.onCompleted: {
                     if (qtCamera) qtCamera.attachSink(qtLiveOut.videoSink)
                 }
@@ -205,9 +201,6 @@ ApplicationWindow {
                     if (qtCamera) qtCamera.detachSink()
                 }
             }
-            // Otherwise the area is left transparent — ffplay subprocess
-            // (spawned by LivePreviewPlayer) renders the camera underneath
-            // this Qt window.  No MediaPlayer here on purpose.
         }
     }
 

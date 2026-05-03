@@ -249,11 +249,23 @@ class QtCameraSession(QObject):
         cameras = QMediaDevices.videoInputs()
         if not cameras:
             return None
+        # Diagnostic: log every camera Qt sees so we can debug device hint matching
+        for dev in cameras:
+            try:
+                dev_id = dev.id().data().decode(errors="replace")
+            except Exception:  # noqa: BLE001
+                dev_id = str(dev.id())
+            LOGGER.info("  available camera: id=%s description=%s",
+                        dev_id, dev.description())
         if hint:
             hint_b = hint.encode() if isinstance(hint, str) else hint
             for dev in cameras:
                 if dev.id() == hint_b or hint in dev.description():
                     return dev
+            # Strict: caller asked for a specific device — don't substitute
+            # something else, surface the failure instead.
+            LOGGER.error("Requested camera %s not found in QMediaDevices", hint)
+            return None
         return cameras[0]
 
     @staticmethod

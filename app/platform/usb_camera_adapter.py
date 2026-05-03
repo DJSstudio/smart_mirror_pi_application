@@ -126,31 +126,41 @@ class UsbCameraAdapter(BaseCameraAdapter):
 # ---------------------------------------------------------------------------
 
 def _is_video_capture_device(device: str) -> bool:
-    """Probe a /dev/videoN node to verify it is a video CAPTURE device,
-    not a metadata-only sibling node.
+    """Probe a /dev/videoN node to verify it is a real USB camera capture
+    device — not a codec/ISP queue or metadata sibling.
 
-    UVC USB cameras typically register multiple /dev/videoN nodes:
-      - One for video capture: ``v4l2-ctl --list-formats`` shows
-        ``Type: Video Capture`` and lists video formats (YUYV/MJPEG/etc.)
-      - One for metadata: shows ``Type: Metadata Capture`` and lists only
-        ``UVCH``/metadata formats
-    Both have ``[N]:`` format lines, so we must check the Type explicitly.
+    Three Type strings ``v4l2-ctl --list-formats`` may report:
+      - ``Type: Video Capture`` — single-planar.  Real UVC cameras.
+      - ``Type: Video Capture Multiplanar`` — bcm2835 codec/ISP queues.
+        Reject: these are NOT cameras and ffmpeg cannot open them as v4l2.
+      - ``Type: Metadata Capture`` — UVC sibling node.  Reject.
+    Also requires at least one ``[N]:`` format line as final sanity check.
     """
     if not shutil.which("v4l2-ctl"):
-        return True  # can't probe, assume valid
+        return True
     try:
         result = subprocess.run(
             ["v4l2-ctl", "--device", device, "--list-formats"],
             capture_output=True, text=True, timeout=3,
         )
-        is_video = "Type: Video Capture" in result.stdout
+        text = result.stdout
+        # Reject codec/ISP queues outright
+        if "Multiplanar" in text:
+            verdict = False
+        else:
+            has_capture_type = "Type: Video Capture" in text
+            has_format = any(
+                line.strip().startswith("[") and "]:" in line
+                for line in text.splitlines()
+            )
+            verdict = has_capture_type and has_format
         import logging  # noqa: PLC0415
         logging.getLogger(__name__).info(
-            "Device %s: video_capture=%s", device, is_video,
+            "Device %s: capture_ok=%s", device, verdict,
         )
-        return is_video
+        return verdict
     except Exception:  # noqa: BLE001
-        return True  # don't penalize on probe failure
+        return True
 
 
 def _detect_devices() -> list[str]:

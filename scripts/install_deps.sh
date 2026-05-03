@@ -27,6 +27,10 @@ COMMON_PKGS=(
     rpicam-apps
     # Input device tools (touch-to-screen mapping on Wayland)
     libinput-tools
+    # v4l2loopback: virtual video device used for shared camera access
+    # (ffmpeg writes the camera frames to /dev/video10, QCamera reads them
+    #  for low-latency preview while ffmpeg also encodes to the recording file)
+    v4l2loopback-dkms
     # GStreamer (needed for Qt Multimedia on Trixie)
     gstreamer1.0-plugins-base
     gstreamer1.0-plugins-good
@@ -114,6 +118,23 @@ else
     "${REPO_ROOT}/venv/bin/pip" install --upgrade pip
     "${REPO_ROOT}/venv/bin/pip" install -r "${REPO_ROOT}/requirements.txt"
 fi
+
+echo ""
+echo "--- Configuring v4l2loopback to load at boot ---"
+# Persistent module load + options so /dev/video10 exists after every reboot.
+# video_nr=10 → fixed device path so the app always knows where to find it.
+# exclusive_caps=1 → reports as a capture device so QCamera enumerates it.
+# card_label gives it a friendly name in QMediaDevices.
+sudo tee /etc/modules-load.d/v4l2loopback.conf >/dev/null <<'EOF'
+v4l2loopback
+EOF
+sudo tee /etc/modprobe.d/v4l2loopback.conf >/dev/null <<'EOF'
+options v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=1
+EOF
+# Load now without reboot
+sudo modprobe -r v4l2loopback 2>/dev/null || true
+sudo modprobe v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=1
+echo "  v4l2loopback loaded; /dev/video10 is the preview pipe."
 
 echo ""
 echo "=== Done! ==="
