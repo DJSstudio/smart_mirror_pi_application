@@ -125,37 +125,72 @@ class UsbCameraAdapter(BaseCameraAdapter):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _detect_devices() -> list[str]:
-    """Return V4L2 capture device paths, filtering out codec/ISP nodes.
+def _is_video_capture_device(device: str) -> bool:
+    """Probe a /dev/videoN node to verify it advertises video capture formats.
 
-    On Raspberry Pi, /dev/video* includes bcm2835 codec and ISP devices that
-    are not real cameras.  v4l2-ctl --list-devices groups devices by name, so
-    we skip any group whose header contains 'bcm2835' or 'isp'.  Falls back to
-    a plain glob when v4l2-ctl is not installed.
+    UVC USB cameras typically register multiple /dev/videoN nodes:
+      - One for actual video capture (has formats listed)
+      - One for metadata (no video formats)
+    On Pi 4 the metadata node sometimes appears first in v4l2-ctl listing
+    and gets picked, then ffmpeg fails with "Not a video capture device".
+    Filter by querying each candidate's --list-formats output.
     """
+    if not shutil.which("v4l2-ctl"):
+        return True  # can't probe, assume valid
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "--device", device, "--list-formats"],
+            capture_output=True, text=True, timeout=3,
+        )
+        # A real capture device lists at least one "[N]: ..." format line.
+        # Metadata-only devices return empty or "VIDIOC_ENUM_FMT: failed".
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("[") and "]" in stripped:
+                return True
+        return False
+    except Exception:  # noqa: BLE001
+        return True  # don't penalize on probe failure
+
+
+def _detect_devices() -> list[str]:
+    """Return V4L2 capture device paths, filtering out non-capture nodes.
+
+    Two-stage filter:
+      1. Skip Pi codec/ISP groups (bcm2835/isp/codec) via v4l2-ctl --list-devices
+      2. For each remaining /dev/videoN, verify it advertises video capture
+         formats — UVC cameras register metadata nodes that look like video
+         devices but cannot be opened by ffmpeg.
+    """
+    candidates: list[str] = []
     if shutil.which("v4l2-ctl"):
         try:
             result = subprocess.run(
                 ["v4l2-ctl", "--list-devices"],
                 capture_output=True, text=True, timeout=5,
             )
-            devices: list[str] = []
             include_block = False
             for line in result.stdout.splitlines():
                 stripped = line.strip()
                 if not stripped:
                     continue
                 if stripped.endswith(":"):
-                    # Device-group header — skip Pi codec/ISP nodes
                     lower = stripped.lower()
-                    include_block = "bcm2835" not in lower and "isp" not in lower and "codec" not in lower
+                    include_block = (
+                        "bcm2835" not in lower
+                        and "isp" not in lower
+                        and "codec" not in lower
+                    )
                 elif include_block and stripped.startswith("/dev/video"):
-                    devices.append(stripped)
-            if devices:
-                return sorted(set(devices))
+                    candidates.append(stripped)
         except Exception:  # noqa: BLE001
             pass
-    return sorted(glob.glob("/dev/video*"))
+    if not candidates:
+        candidates = sorted(glob.glob("/dev/video*"))
+
+    # Stage 2: keep only devices that actually expose video capture formats
+    capture_devices = [d for d in sorted(set(candidates)) if _is_video_capture_device(d)]
+    return capture_devices
 
 
 def _resolve_device(hint: str | None) -> str:
@@ -163,7 +198,11 @@ def _resolve_device(hint: str | None) -> str:
         return hint
     devices = _detect_devices()
     if not devices:
-        raise RuntimeError("No USB camera device found under /dev/video*")
+        raise RuntimeError(
+            "No USB camera capture device found.  Detected /dev/video* nodes "
+            "exist but none advertise video capture formats — check the camera "
+            "is plugged in and recognized by v4l2-ctl --list-devices."
+        )
     return devices[0]
 
 
