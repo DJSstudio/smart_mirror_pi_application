@@ -30,6 +30,7 @@ Item {
 
         // ── Preview / review surface ─────────────────────────────────
         Rectangle {
+            id: surface
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: 20
@@ -38,24 +39,20 @@ Item {
             border.color: "#1C1917"
             clip: true
 
-            // Live preview
-            MediaPlayer {
-                id: livePlayer
-                source: recordingController.previewSource
-                loops: MediaPlayer.Infinite
-                videoOutput: liveOutput
-                audioOutput: AudioOutput { muted: true }
-                onSourceChanged: { if (source.toString().length > 0) play(); else stop() }
-            }
-
-            VideoOutput {
-                id: liveOutput
+            // Subtle gold radial glow during countdown/recording for warmth
+            Rectangle {
                 anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
-                visible: recordingController.previewSource.length > 0
+                radius: 20
+                visible: recordingController.isRecording || recordingController.countdown > 0
+                gradient: Gradient {
+                    orientation: Gradient.Vertical
+                    GradientStop { position: 0.0; color: "#1A140E" }
+                    GradientStop { position: 0.6; color: "#0D0B09" }
+                    GradientStop { position: 1.0; color: "#0D0B09" }
+                }
             }
 
-            // Review player
+            // ── Review player (only when reviewing a finished clip) ──
             MediaPlayer {
                 id: reviewPlayer
                 source: recordingController.reviewSource
@@ -72,13 +69,7 @@ Item {
                 visible: recordingController.reviewSource.length > 0
             }
 
-            // Countdown overlay
-            CountdownOverlay {
-                anchors.fill: parent
-                count: recordingController.countdown
-            }
-
-            // Idle placeholder — shown before recording starts
+            // ── State 1: Idle ────────────────────────────────────────
             ColumnLayout {
                 anchors.centerIn: parent
                 visible: !recordingController.isRecording
@@ -116,47 +107,125 @@ Item {
                 }
             }
 
-            // "Look at the mirror" prompt — shown during countdown and recording
+            // ── State 2: Recording (after countdown ends) ────────────
             ColumnLayout {
                 anchors.centerIn: parent
-                visible: (recordingController.isRecording || recordingController.countdown > 0)
+                visible: recordingController.isRecording
+                         && recordingController.countdown === 0
                          && !recordingController.hasReview
-                spacing: 18
+                spacing: 24
 
-                Rectangle {
+                // Mirror disc — gold ring for "now recording" warmth
+                Item {
                     Layout.alignment: Qt.AlignHCenter
-                    width: 80; height: 80; radius: 999
-                    color: "#1C1917"
+                    width: 120; height: 120
 
-                    Text {
+                    Rectangle {
                         anchors.centerIn: parent
-                        text: "🪞"
-                        font.pixelSize: 36
+                        width: 120; height: 120; radius: 999
+                        color: "transparent"
+                        border.width: 2
+                        border.color: "#C4956A"
+                        opacity: 0.3
+                    }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 96; height: 96; radius: 999
+                        color: "#1C1917"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "🪞"
+                            font.pixelSize: 44
+                        }
                     }
                 }
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "Look at the mirror to see yourself"
-                    font.pixelSize: 20
+                    text: "Look at the mirror"
+                    font.pixelSize: 24
                     font.weight: Font.Medium
+                    color: "#E8DCCB"
+                }
+
+                // Elapsed time — large, clear
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: recordingController.elapsedText
+                    font.family: "Noto Sans Mono, Consolas, monospace"
+                    font.pixelSize: 38
+                    font.weight: Font.Light
                     color: "#C4956A"
                 }
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "Live preview is on the mirror display"
-                    font.pixelSize: 14
+                    text: "Tap Stop when you are done"
+                    font.pixelSize: 13
                     color: "#6B635C"
                 }
             }
 
-            // REC badge
+            // ── State 3: Countdown — overlay on top, hides everything else
+            // Drawn LAST so it's visually on top.  Solid backdrop blocks the
+            // recording/idle panels behind it so nothing competes for the
+            // user's attention with the countdown number.
             Rectangle {
-                visible: recordingController.isRecording
+                id: countdownLayer
+                anchors.fill: parent
+                radius: 20
+                visible: recordingController.countdown > 0
+                color: "#E60D0B09"  // 90% opaque
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 24
+
+                    // Big numeral — the focus
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: recordingController.countdown.toString()
+                        font.family: "Noto Serif, Georgia, serif"
+                        font.pixelSize: 160
+                        font.weight: Font.Light
+                        color: "#FFF8F4"
+                        opacity: 0.95
+
+                        SequentialAnimation on scale {
+                            running: recordingController.countdown > 0
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 1.18; duration: 280; easing.type: Easing.OutQuad }
+                            NumberAnimation { to: 1.0;  duration: 720; easing.type: Easing.InOutQuad }
+                        }
+                    }
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: "Get ready"
+                        font.pixelSize: 18
+                        font.weight: Font.Light
+                        color: "#C4956A"
+                        opacity: 0.85
+                    }
+
+                    Item { Layout.preferredHeight: 24 }   // spacer
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: "🪞  Look at the mirror"
+                        font.pixelSize: 14
+                        color: "#9A8F84"
+                    }
+                }
+            }
+
+            // ── REC badge (top-right corner, only during real recording) ──
+            Rectangle {
+                visible: recordingController.isRecording && recordingController.countdown === 0
                 anchors { top: parent.top; right: parent.right; margins: 16 }
                 radius: 999
-                width: _recRow.implicitWidth + 16; height: 32
+                width: _recRow.implicitWidth + 18; height: 32
                 color: "#CC8B2E2E"
 
                 RowLayout {
@@ -177,9 +246,10 @@ Item {
                     }
 
                     Text {
-                        text: "REC  " + recordingController.elapsedText
-                        font.pixelSize: 13
+                        text: "REC"
+                        font.pixelSize: 12
                         font.weight: Font.DemiBold
+                        font.letterSpacing: 1
                         color: "#FFFFFF"
                     }
                 }
