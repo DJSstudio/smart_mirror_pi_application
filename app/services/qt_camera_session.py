@@ -33,6 +33,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtMultimedia import (
     QCamera,
+    QCameraFormat,
     QMediaCaptureSession,
     QMediaDevices,
     QVideoFrame,
@@ -60,12 +61,14 @@ class QtCameraSession(QObject):
         # Two sinks: an internal one used while QML hasn't attached yet
         # (so recording can start immediately when the camera starts), and
         # the QML VideoOutput's sink once it attaches (for visible preview).
-        # videoFrameChanged is connected to _on_video_frame on whichever
-        # sink the captureSession is currently using.
+        # videoFrameChanged is connected to _on_video_frame ONLY while
+        # recording is active — preview-only mode skips the per-frame
+        # Python callback entirely (eliminates 30 GIL acquisitions/sec
+        # for the preview-only common case).
         self._internal_sink = QVideoSink(self)
-        self._internal_sink.videoFrameChanged.connect(self._on_video_frame)
         self._attached_sink: QVideoSink | None = None
         self._active_sink: QVideoSink = self._internal_sink
+        self._frame_handler_connected: bool = False
 
         # Recording state
         self._recording_path: Path | None = None
@@ -106,26 +109,46 @@ class QtCameraSession(QObject):
     # QML wiring — VideoOutput passes its videoSink to us
     # ------------------------------------------------------------------
 
-    @Slot(QVideoSink)
-    def attachSink(self, sink: QVideoSink) -> None:
-        """QML's VideoOutput.Component.onCompleted calls this with its own
-        videoSink.  We swap the capture session from the internal sink to
-        the QML sink so QML can render the preview, while continuing to
-        receive frames for recording via the swapped-in sink's signal.
-        """
-        if sink is None:
-            self.detachSink()
+    def _connect_frame_handler(self) -> None:
+        """Subscribe _on_video_frame to the active sink's videoFrameChanged.
+        Called only when recording starts so preview-only mode pays no
+        per-frame Python callback cost."""
+        if self._frame_handler_connected:
             return
-        # Disconnect frame handler from currently-active sink
+        try:
+            self._active_sink.videoFrameChanged.connect(self._on_video_frame)
+            self._frame_handler_connected = True
+        except (TypeError, RuntimeError) as exc:
+            LOGGER.warning("Failed to connect frame handler: %s", exc)
+
+    def _disconnect_frame_handler(self) -> None:
+        """Disconnect from whichever sink we're currently subscribed on."""
+        if not self._frame_handler_connected:
+            return
         try:
             self._active_sink.videoFrameChanged.disconnect(self._on_video_frame)
         except (TypeError, RuntimeError):
             pass
-        # Connect to QML's sink and route capture there
-        sink.videoFrameChanged.connect(self._on_video_frame)
+        self._frame_handler_connected = False
+
+    @Slot(QVideoSink)
+    def attachSink(self, sink: QVideoSink) -> None:
+        """QML's VideoOutput.Component.onCompleted calls this with its own
+        videoSink.  We swap the capture session from the internal sink to
+        the QML sink so QML can render the preview.  If recording is
+        active, the frame handler is re-subscribed to the new sink so
+        ffmpeg-pipe writes continue uninterrupted.
+        """
+        if sink is None:
+            self.detachSink()
+            return
+        was_recording = self._frame_handler_connected
+        self._disconnect_frame_handler()
         self._capture.setVideoSink(sink)
         self._attached_sink = sink
         self._active_sink = sink
+        if was_recording:
+            self._connect_frame_handler()
         LOGGER.info("QCamera: attached video sink from QML")
 
     @Slot()
@@ -137,14 +160,13 @@ class QtCameraSession(QObject):
         """
         if self._attached_sink is None:
             return
-        try:
-            self._attached_sink.videoFrameChanged.disconnect(self._on_video_frame)
-        except (TypeError, RuntimeError):
-            pass
+        was_recording = self._frame_handler_connected
+        self._disconnect_frame_handler()
         self._attached_sink = None
         self._capture.setVideoSink(self._internal_sink)
-        self._internal_sink.videoFrameChanged.connect(self._on_video_frame)
         self._active_sink = self._internal_sink
+        if was_recording:
+            self._connect_frame_handler()
 
     @Property(bool, notify=changed)
     def active(self) -> bool:
@@ -193,23 +215,19 @@ class QtCameraSession(QObject):
                         fmt.pixelFormat().name)
 
         self._camera = QCamera(device, self)
-        # NOTE: deliberately NOT calling setCameraFormat — matches the
-        # proven test_qcamera.py architecture.  Camera picks its own best
-        # format.  We discover the actual fps from the first frame received.
-        self._actual_fps = float(fps)  # placeholder; updated on first frame
+        # Pick the best format: MJPEG strongly preferred (Pi can decode it
+        # cheaply, raw YUYV is bandwidth/CPU-heavy), then closest resolution
+        # to the user's settings, then highest fps.  This avoids Qt's
+        # default which often picks the camera's full-sensor mode (e.g.
+        # 1920x1080 MJPEG @ 30fps) — fine on Pi 5, too heavy for Pi 4 to
+        # JPEG-decode + render to a 4K mirror in real-time.
+        self._actual_fps = self._apply_best_format(self._camera, device, width, height, fps)
         self._capture.setCamera(self._camera)
         # Default to internal sink — frames start flowing immediately
         self._capture.setVideoSink(self._internal_sink)
         self._active_sink = self._internal_sink
         self._camera.start()
         self._active = True
-        # Read back what the camera actually negotiated (for the log)
-        actual = self._camera.cameraFormat()
-        if actual.resolution().width() > 0:
-            LOGGER.info("QCamera negotiated: %dx%d @ %.0ffps  pixel=%s",
-                        actual.resolution().width(), actual.resolution().height(),
-                        actual.maxFrameRate(), actual.pixelFormat().name)
-            self._actual_fps = float(actual.maxFrameRate()) or float(fps)
         self.changed.emit()
 
     def start_recording(self, device_hint: str | None,
@@ -224,7 +242,9 @@ class QtCameraSession(QObject):
         self._recording_target_fps = fps
         self._first_frame_seen = False
         self._frame_count = 0
-        # ffmpeg subprocess is started in _on_video_frame on first frame
+        # Connect the frame handler now that we want recording.  Preview-
+        # only mode never has this connected → no per-frame Python callback.
+        self._connect_frame_handler()
         LOGGER.info("Recording will start to %s (ffmpeg spawned on first frame)",
                     output_path)
         return output_path
@@ -241,6 +261,8 @@ class QtCameraSession(QObject):
         self._recording_path = output_path
         self._frame_count = 0
         self._first_frame_seen = False
+        # Connect the frame handler so frames start flowing to ffmpeg
+        self._connect_frame_handler()
         LOGGER.info("Recording started on existing camera session → %s", output_path)
         return output_path
 
@@ -252,6 +274,8 @@ class QtCameraSession(QObject):
         """
         recorded = self._recording_path
         self._recording_path = None
+        # Stop the per-frame Python callback to free up CPU for live preview
+        self._disconnect_frame_handler()
         if self._ffmpeg is not None:
             ffm = self._ffmpeg
             self._ffmpeg = None
@@ -430,6 +454,8 @@ class QtCameraSession(QObject):
     def _stop_on_main_thread(self) -> Path | None:
         recorded_path = self._recording_path
         self._recording_path = None  # signal frame handler to stop writing
+        # Tear down the per-frame callback before everything else
+        self._disconnect_frame_handler()
 
         # Close ffmpeg cleanly so the MP4 trailer is written
         if self._ffmpeg is not None:
@@ -471,6 +497,55 @@ class QtCameraSession(QObject):
         if recorded_path is not None and recorded_path.exists() and recorded_path.stat().st_size > 0:
             return recorded_path
         return None
+
+    @staticmethod
+    def _apply_best_format(camera: QCamera, device, width: int, height: int, fps: int) -> float:
+        """Pick the best camera format with MJPEG-first scoring.
+
+        Strategy:
+          1. If ANY MJPEG format exists, only consider MJPEG formats
+             (raw YUYV would be too heavy for Pi 4 to decode + render).
+          2. Among candidates, pick the one closest to the requested
+             resolution by total pixel count.
+          3. Among ties, pick the highest fps.
+
+        Returns the actual fps the camera will deliver.
+        """
+        formats = device.videoFormats()
+        if not formats:
+            LOGGER.warning("Camera %s reports no formats", device.description())
+            return float(fps)
+
+        for fmt in formats:
+            LOGGER.info("  available: %dx%d  fps=%.1f-%.1f  pixel=%s",
+                        fmt.resolution().width(), fmt.resolution().height(),
+                        fmt.minFrameRate(), fmt.maxFrameRate(),
+                        fmt.pixelFormat().name)
+
+        def is_mjpeg(fmt: QCameraFormat) -> bool:
+            return "jpeg" in fmt.pixelFormat().name.lower()
+
+        # Hard filter to MJPEG when available — raw is too heavy on Pi 4
+        mjpeg_formats = [f for f in formats if is_mjpeg(f)]
+        candidates = mjpeg_formats if mjpeg_formats else formats
+
+        target_pixels = width * height
+
+        def score(fmt: QCameraFormat) -> tuple:
+            res = fmt.resolution()
+            pixel_diff = abs(res.width() * res.height() - target_pixels)
+            return (pixel_diff, -fmt.maxFrameRate())
+
+        best = min(candidates, key=score)
+        camera.setCameraFormat(best)
+        actual_fps = best.maxFrameRate()
+        LOGGER.info(
+            "QCamera selected: %dx%d @ %.0ffps  pixel=%s  (requested %dx%d @ %dfps)",
+            best.resolution().width(), best.resolution().height(),
+            actual_fps, best.pixelFormat().name,
+            width, height, fps,
+        )
+        return float(actual_fps)
 
     @Slot(result=bool)
     def is_alive(self) -> bool:
