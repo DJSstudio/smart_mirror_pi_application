@@ -24,7 +24,6 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QObject,
-    QSize,
     QThread,
     QTimer,
     Property,
@@ -34,7 +33,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtMultimedia import (
     QCamera,
-    QCameraFormat,
     QMediaCaptureSession,
     QMediaDevices,
     QVideoFrame,
@@ -160,6 +158,18 @@ class QtCameraSession(QObject):
                       width: int, height: int, fps: int) -> None:
         """Open the camera and stream frames into the active sink.  No recording.
 
+        Mirrors scripts/test_qcamera.py exactly: pick the device, hand it
+        to QCamera, attach to capture session, start.  No setCameraFormat
+        call — that lets the camera use its preferred (default) format,
+        which is typically the highest-quality MJPEG mode.  Forcing a
+        specific resolution/fps via settings sometimes ended up picking
+        a worse format (e.g., 720p YUYV @ 10fps when 1080p MJPEG @ 30fps
+        was available as default).
+
+        The width/height/fps args are kept in the signature for API
+        compatibility but are now used only as diagnostic logging hints
+        and as the recording-rate fallback.
+
         Uses the internal QVideoSink by default so frames are received
         immediately (and recording can begin right away).  When QML later
         calls attachSink(), the active sink is swapped to QML's VideoOutput
@@ -171,17 +181,35 @@ class QtCameraSession(QObject):
         if device is None:
             raise RuntimeError("No video input device found by QMediaDevices")
 
-        LOGGER.info("QCamera: opening %s (target %dx%d@%dfps)",
+        LOGGER.info("QCamera: opening %s (settings hint %dx%d@%dfps; using camera default)",
                     device.description(), width, height, fps)
 
+        # Diagnostic only: log the formats the camera offers so we can see
+        # which one Qt picks as default.
+        for fmt in device.videoFormats():
+            LOGGER.info("  available: %dx%d  fps=%.1f-%.1f  pixel=%s",
+                        fmt.resolution().width(), fmt.resolution().height(),
+                        fmt.minFrameRate(), fmt.maxFrameRate(),
+                        fmt.pixelFormat().name)
+
         self._camera = QCamera(device, self)
-        self._actual_fps = self._apply_best_format(self._camera, device, width, height, fps)
+        # NOTE: deliberately NOT calling setCameraFormat — matches the
+        # proven test_qcamera.py architecture.  Camera picks its own best
+        # format.  We discover the actual fps from the first frame received.
+        self._actual_fps = float(fps)  # placeholder; updated on first frame
         self._capture.setCamera(self._camera)
         # Default to internal sink — frames start flowing immediately
         self._capture.setVideoSink(self._internal_sink)
         self._active_sink = self._internal_sink
         self._camera.start()
         self._active = True
+        # Read back what the camera actually negotiated (for the log)
+        actual = self._camera.cameraFormat()
+        if actual.resolution().width() > 0:
+            LOGGER.info("QCamera negotiated: %dx%d @ %.0ffps  pixel=%s",
+                        actual.resolution().width(), actual.resolution().height(),
+                        actual.maxFrameRate(), actual.pixelFormat().name)
+            self._actual_fps = float(actual.maxFrameRate()) or float(fps)
         self.changed.emit()
 
     def start_recording(self, device_hint: str | None,
@@ -468,48 +496,6 @@ class QtCameraSession(QObject):
             LOGGER.warning("Camera hint %r not matched — falling back to first device", hint)
         return cameras[0]
 
-    @staticmethod
-    def _apply_best_format(camera: QCamera, device, width: int, height: int, fps: int) -> float:
-        """Pick the best camera format: matching resolution → MJPEG preferred
-        → highest fps ≤ requested.  Returns the actual fps the camera will
-        deliver (which may be lower than requested).
-        """
-        formats = device.videoFormats()
-        if not formats:
-            LOGGER.warning("Camera %s reports no formats", device.description())
-            return float(fps)
-
-        for fmt in formats:
-            LOGGER.info("  available: %dx%d  fps=%.1f-%.1f  pixel=%s",
-                        fmt.resolution().width(), fmt.resolution().height(),
-                        fmt.minFrameRate(), fmt.maxFrameRate(),
-                        fmt.pixelFormat().name)
-
-        target = QSize(width, height)
-        target_pixels = width * height
-        matching = [f for f in formats if f.resolution() == target]
-        candidates = matching if matching else formats
-
-        def is_mjpeg(fmt: QCameraFormat) -> bool:
-            name = fmt.pixelFormat().name.lower()
-            return "jpeg" in name
-
-        def score(fmt: QCameraFormat) -> tuple:
-            res = fmt.resolution()
-            res_diff = 0 if res == target else abs(res.width() * res.height() - target_pixels)
-            mjpeg_pref = 0 if is_mjpeg(fmt) else 1
-            fmax = fmt.maxFrameRate()
-            fps_score = -fmax if fmax <= fps else fmax
-            return (res_diff, mjpeg_pref, fps_score)
-
-        best = min(candidates, key=score)
-        camera.setCameraFormat(best)
-        actual_fps = best.maxFrameRate()
-        LOGGER.info("QCamera selected: %dx%d @ %.0ffps  pixel=%s  (requested %dx%d @ %dfps)",
-                    best.resolution().width(), best.resolution().height(),
-                    actual_fps, best.pixelFormat().name,
-                    width, height, fps)
-        return float(actual_fps)
 
 
 # ---------------------------------------------------------------------------
