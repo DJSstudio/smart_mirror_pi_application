@@ -500,14 +500,15 @@ class QtCameraSession(QObject):
 
     @staticmethod
     def _apply_best_format(camera: QCamera, device, width: int, height: int, fps: int) -> float:
-        """Pick the best camera format with MJPEG-first scoring.
+        """Pick the best camera format.
 
-        Strategy:
-          1. If ANY MJPEG format exists, only consider MJPEG formats
-             (raw YUYV would be too heavy for Pi 4 to decode + render).
-          2. Among candidates, pick the one closest to the requested
-             resolution by total pixel count.
-          3. Among ties, pick the highest fps.
+        Scoring priority:
+          1. MJPEG over raw (Pi-friendly: cheap to decode, low USB bandwidth)
+          2. Matching ASPECT RATIO with the requested resolution
+             (so a 16:9 request doesn't get a 4:3 mode that pillarboxes
+             the mirror display)
+          3. Closest to requested pixel count
+          4. Highest fps among ties
 
         Returns the actual fps the camera will deliver.
         """
@@ -525,25 +526,29 @@ class QtCameraSession(QObject):
         def is_mjpeg(fmt: QCameraFormat) -> bool:
             return "jpeg" in fmt.pixelFormat().name.lower()
 
-        # Hard filter to MJPEG when available — raw is too heavy on Pi 4
         mjpeg_formats = [f for f in formats if is_mjpeg(f)]
         candidates = mjpeg_formats if mjpeg_formats else formats
 
         target_pixels = width * height
+        target_aspect = width / max(1, height)
 
         def score(fmt: QCameraFormat) -> tuple:
             res = fmt.resolution()
+            fmt_aspect = res.width() / max(1, res.height())
+            # Bucket aspect mismatch: anything > 0.1 ratio difference is
+            # "wrong aspect" (separates 4:3 ≈ 1.33 from 16:9 ≈ 1.78).
+            aspect_off = 1 if abs(fmt_aspect - target_aspect) > 0.1 else 0
             pixel_diff = abs(res.width() * res.height() - target_pixels)
-            return (pixel_diff, -fmt.maxFrameRate())
+            return (aspect_off, pixel_diff, -fmt.maxFrameRate())
 
         best = min(candidates, key=score)
         camera.setCameraFormat(best)
         actual_fps = best.maxFrameRate()
         LOGGER.info(
-            "QCamera selected: %dx%d @ %.0ffps  pixel=%s  (requested %dx%d @ %dfps)",
+            "QCamera selected: %dx%d @ %.0ffps  pixel=%s  (requested %dx%d @ %dfps, aspect %.2f)",
             best.resolution().width(), best.resolution().height(),
             actual_fps, best.pixelFormat().name,
-            width, height, fps,
+            width, height, fps, target_aspect,
         )
         return float(actual_fps)
 
