@@ -17,6 +17,7 @@ This sidesteps both broken paths we hit:
 from __future__ import annotations
 
 import logging
+import queue
 import subprocess
 import threading
 import time
@@ -83,6 +84,10 @@ class QtCameraSession(QObject):
         # camera delivers fewer frames per second than its declared max.
         self._recording_start_wallclock: float = 0.0
         self._last_frame_wallclock: float = 0.0
+
+        # M1: dedicated writer thread keeps ffmpeg pipe writes off the GUI thread
+        self._write_queue: queue.Queue = queue.Queue(maxsize=8)
+        self._writer_thread: threading.Thread | None = None
 
         # Cross-thread stop coordination
         self._stop_done = threading.Event()
@@ -286,6 +291,13 @@ class QtCameraSession(QObject):
         self._recording_path = None
         # Stop the per-frame Python callback to free up CPU for live preview
         self._disconnect_frame_handler()
+
+        # Drain the writer thread before closing the pipe
+        if self._writer_thread is not None:
+            self._write_queue.put(None)  # sentinel
+            self._writer_thread.join(timeout=5)
+            self._writer_thread = None
+
         if self._ffmpeg is not None:
             ffm = self._ffmpeg
             self._ffmpeg = None
@@ -330,31 +342,33 @@ class QtCameraSession(QObject):
                 self._recording_path = None  # disable recording
                 return
 
-        # Map frame, copy bytes, write to ffmpeg
+        # Copy frame bytes on main thread — QVideoFrame map/unmap must happen here.
+        # Single-plane formats (YUYV, JPEG): plane 0 is the whole frame.
+        # Multi-plane formats (NV12, YUV420P): write planes in order.
         if not frame.map(QVideoFrame.MapMode.ReadOnly):
             return
         try:
-            stdin = self._ffmpeg.stdin if self._ffmpeg else None
-            if stdin is None:
-                return
-            try:
-                # Single-plane formats (YUYV, JPEG, RGB32): plane 0 is everything
-                # Multi-plane formats (NV12, YUV420P): write planes in order
-                planes = frame.planeCount()
-                for p in range(planes):
-                    bits = frame.bits(p)
-                    if bits is None:
-                        continue
-                    nbytes = frame.mappedBytes(p)
-                    stdin.write(bytes(bits[:nbytes]))
-                self._frame_count += 1
-                self._last_frame_wallclock = time.monotonic()
-            except (BrokenPipeError, OSError) as exc:
-                LOGGER.warning("ffmpeg pipe closed: %s (after %d frames)",
-                               exc, self._frame_count)
-                self._recording_path = None
+            planes = frame.planeCount()
+            chunks: list[bytes] = []
+            for p in range(planes):
+                bits = frame.bits(p)
+                if bits is None:
+                    continue
+                nbytes = frame.mappedBytes(p)
+                chunks.append(bytes(bits[:nbytes]))
         finally:
             frame.unmap()
+
+        if not chunks:
+            return
+
+        # Enqueue for the writer thread — non-blocking: drop the frame if the
+        # queue is full (ffmpeg behind) rather than blocking the GUI thread.
+        try:
+            self._write_queue.put_nowait(chunks)
+            self._last_frame_wallclock = time.monotonic()
+        except queue.Full:
+            LOGGER.debug("Frame dropped: ffmpeg writer thread is behind")
 
     def _spawn_ffmpeg(self, frame: QVideoFrame) -> None:
         """Build an ffmpeg command tailored to the actual frame format and
@@ -445,10 +459,42 @@ class QtCameraSession(QObject):
             args=(self._ffmpeg.stderr, LOGGER, "ffmpeg"),
             daemon=True,
         ).start()
+        # Fresh queue + writer thread for this recording session
+        self._write_queue = queue.Queue(maxsize=8)
+        self._writer_thread = threading.Thread(
+            target=self._writer_loop,
+            name="ffmpeg-writer",
+            daemon=True,
+        )
+        self._writer_thread.start()
         self._first_frame_seen = True
         self._recording_start_wallclock = time.monotonic()
         self._last_frame_wallclock = self._recording_start_wallclock
         LOGGER.info("Recorder ffmpeg started (pid=%d)", self._ffmpeg.pid)
+
+    def _writer_loop(self) -> None:
+        """Drain the frame queue to ffmpeg stdin. Runs on a dedicated thread."""
+        while True:
+            item = self._write_queue.get()
+            if item is None:  # sentinel — stop after draining
+                break
+            proc = self._ffmpeg
+            if proc is None or proc.stdin is None:
+                continue
+            try:
+                for chunk in item:
+                    proc.stdin.write(chunk)
+                self._frame_count += 1
+            except (BrokenPipeError, OSError) as exc:
+                LOGGER.warning("ffmpeg pipe closed in writer thread: %s (frames=%d)",
+                               exc, self._frame_count)
+                # Drain remaining items so stop() can proceed without blocking
+                while not self._write_queue.empty():
+                    try:
+                        self._write_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                break
 
     # ------------------------------------------------------------------
     # Stop — thread-safe (recording_controller calls from bg thread)
@@ -477,6 +523,12 @@ class QtCameraSession(QObject):
         self._recording_path = None  # signal frame handler to stop writing
         # Tear down the per-frame callback before everything else
         self._disconnect_frame_handler()
+
+        # Let the writer thread drain all queued frames before we close the pipe
+        if self._writer_thread is not None:
+            self._write_queue.put(None)  # sentinel
+            self._writer_thread.join(timeout=5)
+            self._writer_thread = None
 
         # Close ffmpeg cleanly so the MP4 trailer is written
         if self._ffmpeg is not None:
