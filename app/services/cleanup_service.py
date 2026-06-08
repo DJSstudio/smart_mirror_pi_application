@@ -20,8 +20,13 @@ LOGGER = logging.getLogger(__name__)
 
 # Temp capture files older than this are considered abandoned and swept.
 # A live recording keeps its file's mtime fresh (ffmpeg writes continuously),
-# so anything this stale cannot be an in-flight capture.
-_TEMP_STALE_MINUTES = 30.0
+# but a FINISHED clip awaiting review has a frozen mtime and is played
+# straight from temp — so the threshold must exceed any plausible active
+# review session. Idle auto-logout (default 5 min) discards a walked-away
+# review long before this, so only a continuously-interacted review could
+# reach it; 2h makes that effectively impossible while still reclaiming
+# crash-orphaned captures promptly enough.
+_TEMP_STALE_MINUTES = 120.0
 
 
 class CleanupService:
@@ -54,24 +59,28 @@ class CleanupService:
             datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
         ).isoformat()
 
-        rows = self._db.connection.execute(
-            """
-            SELECT s.id   AS session_id,
-                   s.name AS session_name,
-                   COALESCE(
-                       MAX(f.logout_at),
-                       MAX(f.login_at),
-                       s.started_at
-                   )      AS last_activity
-            FROM sessions s
-            LEFT JOIN footfall f ON f.session_id = s.id
-            WHERE s.active = 0
-              AND s.purged_at IS NULL
-            GROUP BY s.id
-            HAVING last_activity < ?
-            """,
-            (threshold,),
-        ).fetchall()
+        # Runs on the main thread (timer) but shares the one sqlite3 connection
+        # with bg writers (recording-stop save), so take the read lock to avoid
+        # interleaving with a writer's commit (same rationale as fix #10).
+        with self._db.reading() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.id   AS session_id,
+                       s.name AS session_name,
+                       COALESCE(
+                           MAX(f.logout_at),
+                           MAX(f.login_at),
+                           s.started_at
+                       )      AS last_activity
+                FROM sessions s
+                LEFT JOIN footfall f ON f.session_id = s.id
+                WHERE s.active = 0
+                  AND s.purged_at IS NULL
+                GROUP BY s.id
+                HAVING last_activity < ?
+                """,
+                (threshold,),
+            ).fetchall()
 
         cleaned = 0
         for row in rows:
@@ -139,8 +148,10 @@ class CleanupService:
         """
         now = datetime.now(timezone.utc).isoformat()
 
-        # 1. Collect video records before deleting from DB.
-        videos = self._video_repo.list_videos(session_id=session_id)
+        # 1. Collect video records before deleting from DB (locked: shares the
+        #    connection with bg writers — see fix #10).
+        with self._db.reading():
+            videos = self._video_repo.list_videos(session_id=session_id)
 
         # 2. Delete video files and thumbnails from disk.
         for video in videos:

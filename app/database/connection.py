@@ -26,9 +26,22 @@ class DatabaseManager:
         All multi-step write sequences (execute … execute … commit) must
         run inside ``with db.transaction() as conn:`` to prevent races
         between the Qt main thread and background worker threads.
+
+        On an exception before the caller's commit(), the half-written
+        statements are rolled back — otherwise they stay pending on the shared
+        connection and get flushed by the NEXT writer's commit() (a corrupting
+        leak across unrelated transactions).
         """
         with self._lock:
-            yield self.connection
+            conn = self.connection
+            try:
+                yield conn
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                raise
 
     @contextmanager
     def reading(self):
