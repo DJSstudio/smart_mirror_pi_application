@@ -105,27 +105,26 @@ class CleanupService:
             self._delete_file(video.file_path)
             self._delete_file(video.thumbnail_path)
 
-        conn = self._db.connection
+        with self._db.transaction() as conn:
+            # 3. Delete video rows from DB.
+            conn.execute("DELETE FROM videos WHERE session_id=?", (session_id,))
 
-        # 3. Delete video rows from DB.
-        conn.execute("DELETE FROM videos WHERE session_id=?", (session_id,))
+            # 4. Stamp footfall rows — data is gone, record remains.
+            conn.execute(
+                """
+                UPDATE footfall
+                   SET data_deleted_at = ?
+                 WHERE session_id = ? AND data_deleted_at IS NULL
+                """,
+                (now, session_id),
+            )
 
-        # 4. Stamp footfall rows — data is gone, record remains.
-        conn.execute(
-            """
-            UPDATE footfall
-               SET data_deleted_at = ?
-             WHERE session_id = ? AND data_deleted_at IS NULL
-            """,
-            (now, session_id),
-        )
-
-        # 5. Mark the session as purged — keeps the row for footfall FK integrity.
-        conn.execute(
-            "UPDATE sessions SET purged_at = ? WHERE id = ?",
-            (now, session_id),
-        )
-        conn.commit()
+            # 5. Mark the session as purged — keeps the row for footfall FK integrity.
+            conn.execute(
+                "UPDATE sessions SET purged_at = ? WHERE id = ?",
+                (now, session_id),
+            )
+            conn.commit()
 
         LOGGER.info(
             "Auto-cleanup: deleted %d video(s) for session %s",

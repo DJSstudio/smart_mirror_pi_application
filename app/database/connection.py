@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -9,6 +11,21 @@ class DatabaseManager:
     def __init__(self, database_path: Path) -> None:
         self._path = database_path
         self._conn: sqlite3.Connection | None = None
+        # Serializes concurrent write operations from multiple threads
+        # (e.g. bg recording thread vs main-thread cleanup timer).
+        # Reads don't need the lock — WAL mode allows concurrent readers.
+        self._lock = threading.Lock()
+
+    @contextmanager
+    def transaction(self):
+        """Acquire the write lock and yield the connection.
+
+        All multi-step write sequences (execute … execute … commit) must
+        run inside ``with db.transaction() as conn:`` to prevent races
+        between the Qt main thread and background worker threads.
+        """
+        with self._lock:
+            yield self.connection
 
     @property
     def connection(self) -> sqlite3.Connection:

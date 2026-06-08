@@ -30,13 +30,13 @@ class SessionRepository:
     def create_session(self, name: str, device_id: str = "") -> SessionRecord:
         sid = str(uuid.uuid4())
         now = _now_iso()
-        conn = self._db.connection
-        conn.execute("UPDATE sessions SET active=0, ended_at=? WHERE active=1", (now,))
-        conn.execute(
-            "INSERT INTO sessions (id, name, started_at, active, device_id) VALUES (?,?,?,1,?)",
-            (sid, name, now, device_id),
-        )
-        conn.commit()
+        with self._db.transaction() as conn:
+            conn.execute("UPDATE sessions SET active=0, ended_at=? WHERE active=1", (now,))
+            conn.execute(
+                "INSERT INTO sessions (id, name, started_at, active, device_id) VALUES (?,?,?,1,?)",
+                (sid, name, now, device_id),
+            )
+            conn.commit()
         return self.get_active_session()  # type: ignore[return-value]
 
     def get_active_session(self) -> SessionRecord | None:
@@ -58,26 +58,27 @@ class SessionRepository:
 
         Any currently active sessions (other than *session_id*) are ended.
         """
-        conn = self._db.connection
         now = _now_iso()
-        conn.execute(
-            "UPDATE sessions SET active=0, ended_at=? WHERE active=1 AND id!=?",
-            (now, session_id),
-        )
-        conn.execute(
-            "UPDATE sessions SET active=1, ended_at=NULL, device_id=? WHERE id=?",
-            (device_id, session_id),
-        )
-        conn.commit()
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE sessions SET active=0, ended_at=? WHERE active=1 AND id!=?",
+                (now, session_id),
+            )
+            conn.execute(
+                "UPDATE sessions SET active=1, ended_at=NULL, device_id=? WHERE id=?",
+                (device_id, session_id),
+            )
+            conn.commit()
         return self.get_active_session()
 
     def claim_current_session(self, device_id: str) -> None:
         """Stamp *device_id* onto the active session if it has no owner yet."""
-        self._db.connection.execute(
-            "UPDATE sessions SET device_id=? WHERE active=1 AND (device_id IS NULL OR device_id='')",
-            (device_id,),
-        )
-        self._db.connection.commit()
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE sessions SET device_id=? WHERE active=1 AND (device_id IS NULL OR device_id='')",
+                (device_id,),
+            )
+            conn.commit()
 
     def list_sessions(self, limit: int = 20) -> list[SessionRecord]:
         rows = self._db.connection.execute(
@@ -90,11 +91,11 @@ class SessionRepository:
         return int(row["n"]) if row else 0
 
     def end_session(self, session_id: str) -> None:
-        conn = self._db.connection
-        conn.execute(
-            "UPDATE sessions SET active=0, ended_at=? WHERE id=?", (_now_iso(), session_id)
-        )
-        conn.commit()
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE sessions SET active=0, ended_at=? WHERE id=?", (_now_iso(), session_id)
+            )
+            conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -120,17 +121,18 @@ class VideoRepository:
     ) -> VideoRecord:
         vid = str(uuid.uuid4())
         now = _now_iso()
-        self._db.connection.execute(
-            """
-            INSERT INTO videos
-              (id, session_id, title, file_path, thumbnail_path,
-               duration_seconds, created_at, camera_backend, notes, width, height)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (vid, session_id, title, file_path, thumbnail_path,
-             duration_seconds, now, camera_backend, notes, width, height),
-        )
-        self._db.connection.commit()
+        with self._db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO videos
+                  (id, session_id, title, file_path, thumbnail_path,
+                   duration_seconds, created_at, camera_backend, notes, width, height)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (vid, session_id, title, file_path, thumbnail_path,
+                 duration_seconds, now, camera_backend, notes, width, height),
+            )
+            conn.commit()
         return self.get_video(vid)  # type: ignore[return-value]
 
     def get_video(self, video_id: str) -> VideoRecord | None:
@@ -152,11 +154,15 @@ class VideoRepository:
         return [_row_to_video(r) for r in rows]
 
     def delete_video(self, video_id: str) -> VideoRecord | None:
-        record = self.get_video(video_id)
-        if record is None:
-            return None
-        self._db.connection.execute("DELETE FROM videos WHERE id=?", (video_id,))
-        self._db.connection.commit()
+        with self._db.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM videos WHERE id=? LIMIT 1", (video_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            record = _row_to_video(row)
+            conn.execute("DELETE FROM videos WHERE id=?", (video_id,))
+            conn.commit()
         return record
 
     def count_videos(self, session_id: str | None = None) -> int:
@@ -204,28 +210,26 @@ class FootfallRepository:
         they are automatically closed with reason='session_switch', which
         happens when a second device scans a new QR without explicit logout.
         """
-        conn = self._db.connection
         now = _now_iso()
-
-        # Close any open arcs that belong to a different session.
-        conn.execute(
-            """
-            UPDATE footfall
-               SET logout_at = ?, logout_reason = 'session_switch'
-             WHERE logout_at IS NULL AND session_id != ?
-            """,
-            (now, session.id),
-        )
-
         fid = str(uuid.uuid4())
-        conn.execute(
-            """
-            INSERT INTO footfall (id, session_id, session_name, session_created, login_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (fid, session.id, session.name, session.started_at, now),
-        )
-        conn.commit()
+        with self._db.transaction() as conn:
+            # Close any open arcs that belong to a different session.
+            conn.execute(
+                """
+                UPDATE footfall
+                   SET logout_at = ?, logout_reason = 'session_switch'
+                 WHERE logout_at IS NULL AND session_id != ?
+                """,
+                (now, session.id),
+            )
+            conn.execute(
+                """
+                INSERT INTO footfall (id, session_id, session_name, session_created, login_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (fid, session.id, session.name, session.started_at, now),
+            )
+            conn.commit()
         return self.get_event(fid)  # type: ignore[return-value]
 
     def record_logout(self, session_id: str, reason: str) -> None:
@@ -237,17 +241,17 @@ class FootfallRepository:
         ``reason`` should be one of: ``'manual'``, ``'auto_idle'``,
         ``'session_switch'``.
         """
-        conn = self._db.connection
         now = _now_iso()
-        conn.execute(
-            """
-            UPDATE footfall
-               SET logout_at = ?, logout_reason = ?
-             WHERE session_id = ? AND logout_at IS NULL
-            """,
-            (now, reason, session_id),
-        )
-        conn.commit()
+        with self._db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE footfall
+                   SET logout_at = ?, logout_reason = ?
+                 WHERE session_id = ? AND logout_at IS NULL
+                """,
+                (now, reason, session_id),
+            )
+            conn.commit()
 
     # ------------------------------------------------------------------
     # Read — individual events
