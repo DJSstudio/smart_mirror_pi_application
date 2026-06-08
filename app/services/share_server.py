@@ -5,9 +5,7 @@ links.  Runs in a daemon thread so it never blocks the Qt event loop.
 
 Routes
 ──────
-  GET  /                           → HTML gallery (session recordings, open)
-  GET  /api/videos                 → JSON list of videos (open)
-  GET  /download/<video_id>        → Stream the full video file (open)
+  GET  /download/<id>?token=&device_id=        → Stream a session video (device-gated)
   GET  /session/<token>            → Device-verification page then gallery (session owner only)
   GET  /api/session/videos         → Verify device; return gallery JSON
   GET  /export/<token>             → Device-verification page (must match session owner)
@@ -24,6 +22,7 @@ keeps reads in the HTTP handler threads consistent.
 from __future__ import annotations
 
 import hashlib
+import http.cookies
 import json
 import logging
 import secrets
@@ -47,6 +46,10 @@ _DL_TTL      = 60    # seconds (60 s)   — one-time download token after verifi
 # Tokens refill at 1/second up to the burst limit.
 _RL_BURST    = 10    # max requests allowed in a burst
 _RL_RATE     = 1.0   # tokens refilled per second
+
+# Server-minted device identity cookie (HttpOnly).  Replaces the old
+# client-generated device_id that used to travel in URL query strings.
+_DEVICE_COOKIE = "mirror_did"
 
 
 @dataclass
@@ -79,11 +82,24 @@ class _VideoSnapshot:
 class ShareServer:
     """Lifecycle manager for the embedded HTTP share server."""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 0) -> None:
+    def __init__(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 0,
+        *,
+        tls: bool = False,
+        cert_dir: Path | None = None,
+    ) -> None:
         self._host = host
         self._port = port          # 0 = OS picks a free port
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        # TLS: opt-in self-signed HTTPS.  _tls reflects the ACTUAL state after
+        # start() (False if requested but unavailable); it drives the cookie
+        # Secure flag and the QR URL scheme.
+        self._tls_requested = tls
+        self._cert_dir = cert_dir
+        self._tls = False
 
         # Data cache — written only from Qt main thread, read from HTTP threads
         self._lock = threading.Lock()
@@ -129,13 +145,25 @@ class ShareServer:
         ThreadingHTTPServer.allow_reuse_address = True
         self._server = ThreadingHTTPServer((self._host, self._port), handler)
         self._port = self._server.server_address[1]
+        if self._tls_requested:
+            try:
+                self._enable_tls()
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.error(
+                    "Share server: TLS requested but could not be enabled "
+                    "(%s) — falling back to plain HTTP", exc,
+                )
+                self._tls = False
         self._thread = threading.Thread(
             target=self._server.serve_forever,
             daemon=True,
             name="ShareServer",
         )
         self._thread.start()
-        LOGGER.info("Share server listening on port %d", self._port)
+        LOGGER.info(
+            "Share server listening on port %d (%s)",
+            self._port, "https" if self._tls else "http",
+        )
         return self._port
 
     def stop(self) -> None:
@@ -147,6 +175,75 @@ class ShareServer:
     @property
     def port(self) -> int:
         return self._port
+
+    @property
+    def url_scheme(self) -> str:
+        """'https' when TLS is active, else 'http'.  Use to build QR links."""
+        return "https" if self._tls else "http"
+
+    def _device_cookie(self, device_id: str) -> str:
+        """Build the Set-Cookie header value for the server-minted device id."""
+        attrs = (
+            f"{_DEVICE_COOKIE}={device_id}; Path=/; HttpOnly; "
+            f"SameSite=Strict; Max-Age=31536000"
+        )
+        if self._tls:
+            attrs += "; Secure"
+        return attrs
+
+    def clear_session_data(self) -> None:
+        """Drop the cached gallery and invalidate every outstanding session,
+        export, and one-time download token.  Called when a session ends
+        (logout / idle / start-fresh) so the previous customer's recordings
+        stop being reachable on the LAN.  Login tokens are left intact (a fresh
+        QR is issued right after) and rate-limit buckets are untouched."""
+        with self._lock:
+            self._session_name = "Smart Mirror"
+            self._videos = []
+            self._session_tokens.clear()
+            self._tokens.clear()
+            self._dl_tokens.clear()
+        LOGGER.info("Share server: cleared session gallery + tokens (session ended)")
+
+    def _enable_tls(self) -> None:
+        """Wrap the listening socket in TLS using a self-signed cert (generated
+        on first use).  Raises on failure so start() can fall back to HTTP."""
+        import ssl  # noqa: PLC0415
+        cert, key = self._ensure_cert()
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=str(cert), keyfile=str(key))
+        self._server.socket = ctx.wrap_socket(self._server.socket, server_side=True)
+        self._tls = True
+        LOGGER.info("Share server: TLS enabled (self-signed cert: %s)", cert)
+
+    def _ensure_cert(self) -> tuple[Path, Path]:
+        """Return (cert_path, key_path), generating a self-signed pair via
+        openssl if absent.  Raises RuntimeError if openssl is unavailable."""
+        import shutil  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        cert_dir = self._cert_dir or Path.cwd()
+        cert_dir.mkdir(parents=True, exist_ok=True)
+        cert = cert_dir / "share_server.crt"
+        key = cert_dir / "share_server.key"
+        if cert.exists() and key.exists():
+            return cert, key
+        openssl = shutil.which("openssl")
+        if not openssl:
+            raise RuntimeError("openssl not found — cannot generate a TLS certificate")
+        subprocess.run(
+            [
+                openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(key), "-out", str(cert),
+                "-days", "3650", "-subj", "/CN=Smart Mirror",
+            ],
+            check=True, capture_output=True, timeout=60,
+        )
+        try:
+            key.chmod(0o600)
+        except OSError:
+            pass
+        LOGGER.info("Share server: generated self-signed TLS cert at %s", cert)
+        return cert, key
 
     # ------------------------------------------------------------------
     # Data updates (called from Qt main thread)
@@ -486,20 +583,25 @@ class ShareServer:
                 path = parsed.path.rstrip("/") or "/"
                 qs = urllib.parse.parse_qs(parsed.query)
 
-                # Apply rate limiting to sensitive endpoints.
-                if path in self._RATE_LIMITED:
+                # Apply rate limiting to sensitive endpoints + all file downloads.
+                if path in self._RATE_LIMITED or path.startswith("/download/"):
                     ip = self.client_address[0]
                     if not server._check_rate_limit(ip):
                         self._err(429, "Too many requests — please wait and try again.")
                         return
 
                 try:
-                    if path in ("/", "/gallery"):
-                        self._gallery()
-                    elif path == "/api/videos":
-                        self._api_videos()
+                    if path in ("/", "/gallery", "/api/videos"):
+                        # Legacy open gallery/listing routes removed: they exposed
+                        # the current session's video list + IDs with no device
+                        # check.  Access is the device-gated /session/<token> flow.
+                        self._err(404, "Not found")
                     elif path.startswith("/download/"):
-                        self._download(path[len("/download/"):])
+                        self._download(
+                            path[len("/download/"):],
+                            qs.get("token", [""])[0],
+                            qs.get("device_id", [""])[0],
+                        )
                     elif path.startswith("/export/dl/"):
                         self._export_dl(path[len("/export/dl/"):])
                     elif path.startswith("/export/"):
@@ -534,45 +636,24 @@ class ShareServer:
                     LOGGER.exception("Share server error: %s", exc)
                     self._err(500, "Internal error")
 
-            # ── Gallery pages ────────────────────────────────────────────
+            # ── Gallery downloads (device-gated) ─────────────────────────
 
-            def _gallery(self):
-                session_name, videos = server._get_snapshot()
-                host = self.headers.get("Host", f"localhost:{server.port}")
-                items = ""
-                for v in videos:
-                    dl = f"http://{host}/download/{v.id}"
-                    items += (
-                        f'<div class="card">'
-                        f'<div class="icon">&#x25b6;</div>'
-                        f'<div class="info">'
-                        f'<div class="title">{_esc(v.title)}</div>'
-                        f'<div class="meta">{_esc(v.duration_label)}'
-                        f' &middot; {_esc(v.created_label)}</div>'
-                        f'</div>'
-                        f'<a href="{dl}" class="dl" download>Download</a>'
-                        f'</div>'
+            def _download(self, video_id: str, token: str, qs_device_id: str):
+                """Stream a session video — requires a valid session token whose
+                device (from the HttpOnly cookie) matches.  Same gate as
+                /api/session/videos, so files cannot be pulled by an
+                unauthenticated device on the LAN."""
+                device_id = self._device_id(qs_device_id)
+                if not server._check_session_token(token, device_id):
+                    self._err(
+                        403,
+                        "Not authorized — open the gallery link from your phone.",
                     )
-                if not items:
-                    items = '<p class="empty">No recordings yet.</p>'
-                html = _HTML.format(name=_esc(session_name), items=items)
-                self._html(html)
+                    return
+                self._stream_video(video_id)
 
-            def _api_videos(self):
-                session_name, videos = server._get_snapshot()
-                host = self.headers.get("Host", f"localhost:{server.port}")
-                self._json([
-                    {
-                        "id": v.id,
-                        "title": v.title,
-                        "duration": v.duration_label,
-                        "created": v.created_label,
-                        "download_url": f"http://{host}/download/{v.id}",
-                    }
-                    for v in videos
-                ])
-
-            def _download(self, video_id: str):
+            def _stream_video(self, video_id: str):
+                """Stream a video file by id.  Callers MUST authorize first."""
                 snap = server._find_video(video_id)
                 if snap is None:
                     self._err(404, "Video not found")
@@ -586,11 +667,12 @@ class ShareServer:
                 html = _EXPORT_HTML.replace("__TOKEN__", _esc(token))
                 self._html(html)
 
-            def _export_verify(self, token: str, device_id: str):
-                """Verify device_id; on success issue a one-time dl_token."""
+            def _export_verify(self, token: str, qs_device_id: str):
+                """Verify device (via cookie); on success issue a one-time dl_token."""
                 if not token:
                     self._json({"ok": False, "error": "Missing token"})
                     return
+                device_id = self._device_id(qs_device_id)
                 ok, video_id = server.verify_export_token(token, device_id)
                 if not ok:
                     self._json({
@@ -602,8 +684,7 @@ class ShareServer:
                     })
                     return
                 dl_token = server.create_dl_token(video_id)
-                host = self.headers.get("Host", f"localhost:{server.port}")
-                dl_url = f"http://{host}/export/dl/{dl_token}"
+                dl_url = f"/export/dl/{dl_token}"
                 self._json({"ok": True, "download_url": dl_url})
 
             def _export_dl(self, dl_token: str):
@@ -612,7 +693,7 @@ class ShareServer:
                 if video_id is None:
                     self._err(410, "Download link expired or already used")
                     return
-                self._download(video_id)
+                self._stream_video(video_id)
 
             # ── Session Gallery ──────────────────────────────────────────
 
@@ -621,11 +702,12 @@ class ShareServer:
                 html = _SESSION_HTML.replace("__TOKEN__", _esc(token))
                 self._html(html)
 
-            def _session_videos(self, token: str, device_id: str):
-                """Verify device, return session gallery JSON."""
+            def _session_videos(self, token: str, qs_device_id: str):
+                """Verify device (via cookie), return session gallery JSON."""
                 if not token:
                     self._json({"ok": False, "error": "Missing token"})
                     return
+                device_id = self._device_id(qs_device_id)
                 if not server._check_session_token(token, device_id):
                     self._json({
                         "ok": False,
@@ -636,7 +718,10 @@ class ShareServer:
                     })
                     return
                 session_name, videos = server._get_snapshot()
-                host = self.headers.get("Host", f"localhost:{server.port}")
+                # Download links carry only the session token; the device identity
+                # rides along in the HttpOnly cookie (relative URL also avoids any
+                # Host-header reflection).
+                tok = urllib.parse.quote(token, safe="")
                 self._json({
                     "ok": True,
                     "session_name": session_name,
@@ -646,7 +731,7 @@ class ShareServer:
                             "title": v.title,
                             "duration": v.duration_label,
                             "created": v.created_label,
-                            "download_url": f"http://{host}/download/{v.id}",
+                            "download_url": f"/download/{v.id}?token={tok}",
                         }
                         for v in videos
                     ],
@@ -659,16 +744,28 @@ class ShareServer:
                 html = _LOGIN_HTML.replace("__TOKEN__", _esc(token))
                 self._html(html)
 
-            def _qr_confirm(self, token: str, device_id: str):
-                """Phone browser confirms scan; returns needs_choice flag."""
-                if not token or not device_id:
-                    self._json({"ok": False, "error": "Missing token or device_id"})
+            def _qr_confirm(self, token: str, qs_device_id: str):
+                """Phone browser confirms scan; returns needs_choice flag.
+
+                Device identity is a server-minted HttpOnly cookie (mirror_did).
+                If the phone has no cookie yet we mint one here and set it, so the
+                device never has to assert its own id in a URL."""
+                if not token:
+                    self._json({"ok": False, "error": "Missing token"})
                     return
+                device_id = self._device_id(qs_device_id)
+                set_cookie = None
+                if not device_id:
+                    device_id = secrets.token_urlsafe(16)
+                    set_cookie = server._device_cookie(device_id)
                 ok, needs_choice, session_name, video_count = server.handle_qr_confirm(
                     token, device_id
                 )
                 if not ok:
-                    self._json({"ok": False, "error": "Invalid or expired QR code"})
+                    self._json(
+                        {"ok": False, "error": "Invalid or expired QR code"},
+                        set_cookie=set_cookie,
+                    )
                     return
                 if needs_choice:
                     self._json({
@@ -676,9 +773,9 @@ class ShareServer:
                         "needs_choice": True,
                         "session_name": session_name,
                         "video_count": video_count,
-                    })
+                    }, set_cookie=set_cookie)
                 else:
-                    self._json({"ok": True, "needs_choice": False})
+                    self._json({"ok": True, "needs_choice": False}, set_cookie=set_cookie)
 
             def _qr_choice(self, token: str, action: str):
                 """Phone submits Resume or Start-Fresh choice."""
@@ -694,6 +791,20 @@ class ShareServer:
                     })
 
             # ── Helpers ──────────────────────────────────────────────────
+
+            def _device_id(self, qs_fallback: str = "") -> str:
+                """Device identity from the server-minted HttpOnly cookie.
+                Falls back to a ?device_id= query param only for clients that
+                don't have the cookie yet (the app no longer sends it in URLs)."""
+                raw = self.headers.get("Cookie", "")
+                if raw:
+                    try:
+                        morsel = http.cookies.SimpleCookie(raw).get(_DEVICE_COOKIE)
+                        if morsel and morsel.value:
+                            return morsel.value
+                    except Exception:  # noqa: BLE001
+                        pass
+                return qs_fallback
 
             def _stream(self, path: Path, title: str):
                 if not path.exists():
@@ -729,11 +840,13 @@ class ShareServer:
                 self.end_headers()
                 self.wfile.write(data)
 
-            def _json(self, obj):
+            def _json(self, obj, set_cookie: str | None = None):
                 data = json.dumps(obj).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
+                if set_cookie:
+                    self.send_header("Set-Cookie", set_cookie)
                 self.end_headers()
                 self.wfile.write(data)
 
@@ -823,7 +936,6 @@ header p{font-size:13px;color:#a09590}
 <script>
 (function(){
 var token='__TOKEN__';
-var did=localStorage.getItem('mirror_device_id')||'';
 var st=document.getElementById('st');
 var verifyCard=document.getElementById('verify-card');
 var galleryDiv=document.getElementById('gallery');
@@ -833,7 +945,7 @@ function esc(s){
                       .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-fetch('/api/session/videos?token='+encodeURIComponent(token)+'&device_id='+encodeURIComponent(did))
+fetch('/api/session/videos?token='+encodeURIComponent(token))
   .then(function(r){return r.json();})
   .then(function(d){
     if(d.ok){
@@ -917,14 +1029,7 @@ h1{font-size:22px;font-weight:600;margin-bottom:8px}
 </div>
 <script>
 (function(){
-function uuid4(){
-  return([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){
-    return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);
-  });
-}
 var token='__TOKEN__';
-var did=localStorage.getItem('mirror_device_id');
-if(!did){did=uuid4();localStorage.setItem('mirror_device_id',did);}
 var st=document.getElementById('st');
 var sub=document.getElementById('sub');
 var btns=document.getElementById('btns');
@@ -972,7 +1077,7 @@ function showChoice(sn,vc){
   btns.style.display='flex';
 }
 
-fetch('/api/qr/confirm?token='+encodeURIComponent(token)+'&device_id='+encodeURIComponent(did))
+fetch('/api/qr/confirm?token='+encodeURIComponent(token))
   .then(function(r){return r.json();})
   .then(function(d){
     if(d.ok){
@@ -1033,11 +1138,10 @@ h1{font-size:22px;font-weight:600;margin-bottom:8px}
 <script>
 (function(){
 var token='__TOKEN__';
-var did=localStorage.getItem('mirror_device_id')||'';
 var st=document.getElementById('st');
 var dl=document.getElementById('dl');
 
-fetch('/api/export/verify?token='+encodeURIComponent(token)+'&device_id='+encodeURIComponent(did))
+fetch('/api/export/verify?token='+encodeURIComponent(token))
   .then(function(r){return r.json();})
   .then(function(d){
     if(d.ok){

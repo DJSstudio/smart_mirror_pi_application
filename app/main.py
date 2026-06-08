@@ -134,7 +134,12 @@ def main() -> int:
     cleanup_service.run(older_than_hours=_cleanup_hours)
 
     _share_port = int(settings.get("share_server_port", 8765))
-    share_server = ShareServer(port=_share_port)
+    _share_tls = bool(settings.get("share_server_tls", False))
+    share_server = ShareServer(
+        port=_share_port,
+        tls=_share_tls,
+        cert_dir=paths.data_dir / "tls",
+    )
     share_server.start()
 
     # ----------------------------------------------------------------

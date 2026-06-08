@@ -125,10 +125,16 @@ class LoginController(QObject):
                 "Footfall: logout session=%s reason=%s", active.id[:8], reason
             )
 
+        # Privacy: stop serving the previous session's recordings the moment we
+        # return to the login screen — clears the cached gallery and invalidates
+        # its session/export/download tokens so the next person on the LAN can't
+        # reach them.
+        self._server.clear_session_data()
+
         try:
             ip = get_local_ip()
             port = self._server.port
-            self._server_url = f"http://{ip}:{port}"
+            self._server_url = f"{self._server.url_scheme}://{ip}:{port}"
 
             raw_token, token_hash = self._server.create_login_token()
             self._token_hash = token_hash
