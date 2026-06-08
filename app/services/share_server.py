@@ -25,6 +25,7 @@ import hashlib
 import http.cookies
 import json
 import logging
+import re
 import secrets
 import threading
 import time
@@ -688,7 +689,10 @@ class ShareServer:
 
             def _export_page(self, token: str):
                 """HTML page that verifies device identity before download."""
-                html = _EXPORT_HTML.replace("__TOKEN__", _esc(token))
+                if not _valid_token(token):
+                    self._err(404, "Invalid link")
+                    return
+                html = _EXPORT_HTML.replace("__TOKEN__", json.dumps(token))
                 self._html(html)
 
             def _export_verify(self, token: str, qs_device_id: str):
@@ -723,7 +727,10 @@ class ShareServer:
 
             def _session_page(self, token: str):
                 """HTML page that verifies device identity then shows the gallery."""
-                html = _SESSION_HTML.replace("__TOKEN__", _esc(token))
+                if not _valid_token(token):
+                    self._err(404, "Invalid link")
+                    return
+                html = _SESSION_HTML.replace("__TOKEN__", json.dumps(token))
                 self._html(html)
 
             def _session_videos(self, token: str, qs_device_id: str):
@@ -765,7 +772,10 @@ class ShareServer:
 
             def _qr_activate_page(self, token: str):
                 """HTML page served when a phone opens /qr/activate?token=<raw>."""
-                html = _LOGIN_HTML.replace("__TOKEN__", _esc(token))
+                if not _valid_token(token):
+                    self._err(404, "Invalid link")
+                    return
+                html = _LOGIN_HTML.replace("__TOKEN__", json.dumps(token))
                 self._html(html)
 
             def _qr_confirm(self, token: str, qs_device_id: str):
@@ -865,6 +875,11 @@ class ShareServer:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
+                # Defense-in-depth headers (the token is already validated +
+                # JSON-encoded, so these are belt-and-suspenders): block MIME
+                # sniffing and framing/clickjacking of the gallery/login pages.
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
                 self.end_headers()
                 self.wfile.write(data)
 
@@ -909,6 +924,16 @@ def _esc(text: str) -> str:
             .replace(">", "&gt;")
             .replace('"', "&quot;")
     )
+
+
+# All tokens we mint use secrets.token_urlsafe → alphabet [A-Za-z0-9_-].
+# Rejecting anything else before it reaches an HTML/JS template closes the
+# reflected-XSS vector (a crafted token can't carry quotes/tags/backslashes).
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _valid_token(token: str) -> bool:
+    return bool(token) and _TOKEN_RE.match(token) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -963,7 +988,7 @@ header p{font-size:13px;color:#a09590}
 <div id="gallery"></div>
 <script>
 (function(){
-var token='__TOKEN__';
+var token=__TOKEN__;
 var st=document.getElementById('st');
 var verifyCard=document.getElementById('verify-card');
 var galleryDiv=document.getElementById('gallery');
@@ -1057,7 +1082,7 @@ h1{font-size:22px;font-weight:600;margin-bottom:8px}
 </div>
 <script>
 (function(){
-var token='__TOKEN__';
+var token=__TOKEN__;
 var st=document.getElementById('st');
 var sub=document.getElementById('sub');
 var btns=document.getElementById('btns');
@@ -1165,7 +1190,7 @@ h1{font-size:22px;font-weight:600;margin-bottom:8px}
 </div>
 <script>
 (function(){
-var token='__TOKEN__';
+var token=__TOKEN__;
 var st=document.getElementById('st');
 var dl=document.getElementById('dl');
 
