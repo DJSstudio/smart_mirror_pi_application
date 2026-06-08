@@ -244,16 +244,21 @@ def main() -> int:
     idle_service.install(app)
     idle_service.timedOut.connect(login_ctrl.autoLogout)
 
-    # Pause on pages where auto-logout makes no sense:
-    #   login     — already at the login screen, nothing to time out
-    #   recording — never interrupt an active capture mid-session
-    def _on_page_changed() -> None:
-        if app_ctrl.currentPage in ("login", "recording"):
+    # Pause idle auto-logout only during active capture (countdown + recording).
+    # Review state, post-discard, and all other pages keep the timer running so
+    # a user who walks away mid-review still gets auto-logged out.
+    def _update_idle_state() -> None:
+        page = app_ctrl.currentPage
+        if page == "login":
             idle_service.stop()
-        else:
-            idle_service.start()
+            return
+        if page == "recording" and (recording_ctrl.isRecording or recording_ctrl.countdown > 0):
+            idle_service.stop()
+            return
+        idle_service.start()
 
-    app_ctrl.currentPageChanged.connect(_on_page_changed)
+    app_ctrl.currentPageChanged.connect(_update_idle_state)
+    recording_ctrl.changed.connect(_update_idle_state)
 
     # ----------------------------------------------------------------
     # QML engine
