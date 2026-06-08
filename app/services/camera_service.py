@@ -15,6 +15,10 @@ from app.services.settings_service import SettingsService
 
 LOGGER = logging.getLogger(__name__)
 
+# Minimum free space required before allowing a new recording.
+# At 8 Mbps (default bitrate) this gives ~8 minutes of headroom.
+_MIN_FREE_BYTES = 500 * 1024 * 1024  # 500 MB
+
 
 class CameraService:
     def __init__(self, paths: AppPaths, settings: SettingsService) -> None:
@@ -34,6 +38,7 @@ class CameraService:
     # ------------------------------------------------------------------
 
     def start_recording(self) -> CameraPreview:
+        self._check_disk_space()
         self._stop_any(discard=True)
         adapter = self._pick()
         self._active = adapter
@@ -128,6 +133,22 @@ class CameraService:
     # ------------------------------------------------------------------
     # Private
     # ------------------------------------------------------------------
+
+    def _check_disk_space(self) -> None:
+        """Raise RuntimeError if the data directory has less than _MIN_FREE_BYTES free."""
+        try:
+            free = shutil.disk_usage(self._paths.data_dir).free
+        except OSError as exc:
+            LOGGER.warning("Could not check disk space: %s", exc)
+            return  # non-fatal: let recording proceed
+        if free < _MIN_FREE_BYTES:
+            free_mb = free // (1024 * 1024)
+            needed_mb = _MIN_FREE_BYTES // (1024 * 1024)
+            raise RuntimeError(
+                f"Not enough disk space to record — {free_mb} MB free, "
+                f"{needed_mb} MB required. Free up space and try again."
+            )
+        LOGGER.debug("Disk space OK: %d MB free", free // (1024 * 1024))
 
     def _stop_any(self, discard: bool) -> CompletedCapture | None:
         if self._active is None:
