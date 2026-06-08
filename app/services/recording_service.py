@@ -93,30 +93,48 @@ class RecordingService:
         session = self._sessions.ensure_active_session()
         sequence = self._repo.count_videos(session.id) + 1
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        src = recording.file_path
         dest = self._paths.videos_dir / f"{ts}_look_{sequence:03d}.mp4"
-        shutil.move(str(recording.file_path), dest)
-
         thumb_path = self._paths.thumbnails_dir / f"{dest.stem}.jpg"
-        duration = probe_duration(dest)
-        width, height = probe_dimensions(dest)
 
+        # Probe + thumbnail on the SOURCE (still in temp).  If any of this
+        # fails the source is untouched, so the controller's retry still
+        # works and nothing is orphaned in videos_dir.
+        duration = probe_duration(src)
+        width, height = probe_dimensions(src)
         thumbnail: str | None = None
         try:
-            generate_thumbnail(dest, thumb_path)
+            generate_thumbnail(src, thumb_path)
             thumbnail = str(thumb_path)
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Thumbnail generation failed: %s", exc)
 
-        return self._repo.create_video(
-            session_id=session.id,
-            title=f"Look {sequence}",
-            file_path=str(dest),
-            thumbnail_path=thumbnail,
-            duration_seconds=duration,
-            camera_backend=recording.backend,
-            width=width,
-            height=height,
-        )
+        # Move into place, then create the DB row.  Previously the move
+        # happened first, so a failed insert left an orphaned file in
+        # videos_dir (cleanup only reclaims files it finds via DB rows) AND a
+        # retry hit FileNotFoundError (source already moved away → clip lost).
+        # Now, if the insert fails we move the file back so the source is
+        # restored for a retry and nothing is orphaned.
+        shutil.move(str(src), dest)
+        try:
+            return self._repo.create_video(
+                session_id=session.id,
+                title=f"Look {sequence}",
+                file_path=str(dest),
+                thumbnail_path=thumbnail,
+                duration_seconds=duration,
+                camera_backend=recording.backend,
+                width=width,
+                height=height,
+            )
+        except Exception:
+            try:
+                shutil.move(str(dest), str(src))  # roll back so retry works
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("save_prepared: rollback move failed (file at %s)", dest)
+            if thumbnail:
+                safe_unlink(thumb_path)
+            raise
 
     def discard_prepared(self, recording: PreparedRecording | None) -> None:
         if recording is not None:
