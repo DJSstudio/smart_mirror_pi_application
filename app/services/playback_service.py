@@ -270,6 +270,15 @@ class PlaybackService(QObject):
     def close_active(self) -> None:
         """Stop any active playback and return mirror to idle/black."""
         if self._mode == "live_compare":
+            # If a Live Compare recording is in flight, FINALIZE+SAVE it rather
+            # than discarding it.  Navigating away / back / idle-logout all
+            # route through here, and a bare stop(discard=True) silently
+            # deleted the customer's in-progress clip and left _lc_recording
+            # stuck True.  stopLiveCompareRecording runs end_recording on this
+            # (GUI) thread and offloads only the save, clears the flag, and
+            # leaves _recording_path None so the stop() below unlinks nothing.
+            if self._lc_recording:
+                self.stopLiveCompareRecording()
             self._camera.stop(discard=True)
         self._mode = "idle"
         self._primary_source = ""
