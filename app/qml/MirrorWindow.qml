@@ -302,8 +302,8 @@ ApplicationWindow {
                 Component.onCompleted: play()
                 onSourceChanged: { stop(); if (source.toString().length) play() }
                 // Report playback state back to controller via playbackService
-                onPositionChanged: if (playbackService) playbackService.setMirrorPosition(position)
-                onDurationChanged: if (playbackService) playbackService.setMirrorDuration(duration)
+                onPositionChanged: function(position) { if (playbackService) playbackService.setMirrorPosition(position) }
+                onDurationChanged: function(duration) { if (playbackService) playbackService.setMirrorDuration(duration) }
                 onPlaybackStateChanged: {
                     if (playbackService)
                         playbackService.setMirrorPlaying(playbackState === MediaPlayer.PlayingState)
@@ -571,11 +571,11 @@ ApplicationWindow {
                     playbackService.setMirrorPlaying(playbackState === MediaPlayer.PlayingState)
                 }
             }
-            onPositionChanged: {
+            onPositionChanged: function(position) {
                 if (pane.isPrimary && playbackService)
                     playbackService.setMirrorPosition(position)
             }
-            onDurationChanged: {
+            onDurationChanged: function(duration) {
                 if (pane.isPrimary && playbackService)
                     playbackService.setMirrorDuration(duration)
             }
