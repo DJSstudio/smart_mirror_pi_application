@@ -1,10 +1,13 @@
 """SQLite connection and schema management."""
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+
+LOGGER = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -34,7 +37,28 @@ class DatabaseManager:
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
+            # Wait up to 5s for a lock instead of raising immediately — covers
+            # off-thread reads (HTTP handlers) overlapping a writer's commit.
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            # Explicit NORMAL: durable for committed txns under WAL while
+            # avoiding an fsync per commit (kinder to the SD card than FULL).
+            self._conn.execute("PRAGMA synchronous=NORMAL")
         return self._conn
+
+    def checkpoint(self) -> None:
+        """Truncate the write-ahead log to bound its on-disk growth.
+
+        Called periodically (cleanup timer) and on shutdown.  Without this the
+        -wal file can grow unbounded over weeks of uptime.  Held under the
+        write lock so it can't interleave with a writer mid-transaction.
+        """
+        if self._conn is None:
+            return
+        try:
+            with self._lock:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error as exc:
+            LOGGER.warning("WAL checkpoint failed: %s", exc)
 
     def initialize(self) -> None:
         self.connection.executescript("""

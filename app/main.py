@@ -172,6 +172,7 @@ def main() -> int:
     _cleanup_timer.timeout.connect(lambda: (
         cleanup_service.run(older_than_hours=_cleanup_hours),
         share_server.prune_expired(),
+        db.checkpoint(),
     ))
     _cleanup_timer.start()
 
@@ -321,6 +322,10 @@ def main() -> int:
             pass
         try:
             share_server.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            db.checkpoint()  # flush the WAL into the main db before closing
         except Exception:  # noqa: BLE001
             pass
         db.close()
