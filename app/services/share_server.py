@@ -214,6 +214,7 @@ class ShareServer:
         """Wrap the listening socket in TLS using a self-signed cert (generated
         on first use).  Raises on failure so start() can fall back to HTTP."""
         import ssl  # noqa: PLC0415
+        assert self._server is not None  # _enable_tls is only called from start()
         cert, key = self._ensure_cert()
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=str(cert), keyfile=str(key))

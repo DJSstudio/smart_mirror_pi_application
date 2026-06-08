@@ -150,13 +150,14 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg is required for Raspberry Pi camera capture")
         self._rpicam_proc = subprocess.Popen(rpicam_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert self._rpicam_proc.stdout is not None
+        rpicam_stdout = self._rpicam_proc.stdout
+        assert rpicam_stdout is not None
         try:
             # ffmpeg stdout is unused (tee → file/UDP) → DEVNULL so it can't
             # fill and stall.  rpicam stdout stays a PIPE feeding ffmpeg stdin.
             self._ffmpeg_proc = subprocess.Popen(
                 ffmpeg_args,
-                stdin=self._rpicam_proc.stdout,
+                stdin=rpicam_stdout,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
@@ -167,7 +168,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
             self._rpicam_proc.wait()
             self._rpicam_proc = None
             raise
-        self._rpicam_proc.stdout.close()  # let ffmpeg own the pipe
+        rpicam_stdout.close()  # let ffmpeg own the pipe
         self._start_pipe_logger("rpicam", self._rpicam_proc.stderr)
         self._start_pipe_logger("ffmpeg", self._ffmpeg_proc.stderr)
 

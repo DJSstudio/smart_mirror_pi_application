@@ -256,9 +256,11 @@ class LoginController(QObject):
                     # (Pi IP changed, localStorage cleared, etc.).  They saw the
                     # active session in the choice dialog and explicitly chose Resume,
                     # so relink that session to the new device_id.
-                    session = self._session_svc.relink_active_session(device_id)
-                    if session is None:
+                    relinked = self._session_svc.relink_active_session(device_id)
+                    if relinked is None:
                         session, _ = self._session_svc.get_or_resume_for_device(device_id)
+                    else:
+                        session = relinked
                     LOGGER.info(
                         "Footfall: relinked session %s to new device_id %s",
                         session.id[:8], device_id[:8],
