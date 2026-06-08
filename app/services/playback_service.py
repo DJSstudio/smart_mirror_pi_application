@@ -8,6 +8,7 @@ reference each other from QML.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -39,6 +40,11 @@ class PlaybackService(QObject):
     # Emitted after a Live Compare recording is saved to the gallery; main.py
     # connects this to gallery_controller.refresh() so the new entry appears.
     videoSaved = Signal(str)   # video title
+    # Emitted when a Live Compare recording fails to save; main.py wires this
+    # to app_controller.showError so a lost clip is reported, not swallowed.
+    saveFailed = Signal(str)   # error message
+    # Private: marshals the bg save result (title, error) back to the GUI thread.
+    _lcSaveResult = Signal(str, str)
 
     def __init__(
         self,
@@ -70,6 +76,7 @@ class PlaybackService(QObject):
         # Live Compare recording state
         self._lc_recording = False
         self._lc_recording_path: Path | None = None
+        self._lcSaveResult.connect(self._on_lc_save_result)
 
     def attach_qt_camera_session(self, session: QtCameraSession) -> None:
         """Inject the Qt camera session after QGuiApplication exists."""
@@ -196,31 +203,57 @@ class PlaybackService(QObject):
         """Stop the Live Compare recording and save the file directly to
         the gallery (no review screen — recording started on user tap, no
         warmup to trim).
+
+        The blocking work — end_recording() (writer-thread join + ffmpeg
+        wait, up to ~15s) plus the remux/probe/DB save — runs on a bg thread
+        so the GUI stays responsive.  end_recording keeps the QCamera running
+        (no QObject teardown) and the save path is already used off-thread by
+        RecordingController, so this is safe off the GUI thread.  The result
+        is marshalled back via _lcSaveResult so a save failure is surfaced to
+        the user instead of silently losing the clip.
         """
         if not self._lc_recording or self._qt_camera is None:
             return
-        actual_path = self._qt_camera.end_recording()
+        # Flip UI state now so the button updates immediately.
         self._lc_recording = False
         self._lc_recording_path = None
         self.changed.emit()
-        if actual_path is None or not actual_path.exists():
-            LOGGER.warning("Live Compare recording produced no file")
-            return
-        # Wrap in CompletedCapture and save directly via recording_service.
-        from app.models.entities import CompletedCapture  # noqa: PLC0415
-        capture = CompletedCapture(
-            file_path=actual_path,
-            file_format="mp4",
-            backend="usb_qt_lc",
-        )
-        try:
-            prepared = self._recording_svc.prepare_review(capture, trim_start=0.0)
-            video = self._recording_svc.save_prepared(prepared)
-            LOGGER.info("Live Compare recording saved: %s", video.title)
-            # Tell observers (gallery_controller) to refresh
-            self.videoSaved.emit(video.title)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.exception("Failed to save Live Compare recording: %s", exc)
+
+        qt_camera = self._qt_camera
+        recording_svc = self._recording_svc
+
+        def _bg() -> None:
+            title, error = "", ""
+            try:
+                actual_path = qt_camera.end_recording()
+                if actual_path is None or not actual_path.exists():
+                    LOGGER.warning("Live Compare recording produced no file")
+                    error = "Recording produced no file."
+                else:
+                    from app.models.entities import CompletedCapture  # noqa: PLC0415
+                    capture = CompletedCapture(
+                        file_path=actual_path,
+                        file_format="mp4",
+                        backend="usb_qt_lc",
+                    )
+                    prepared = recording_svc.prepare_review(capture, trim_start=0.0)
+                    video = recording_svc.save_prepared(prepared)
+                    LOGGER.info("Live Compare recording saved: %s", video.title)
+                    title = video.title
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.exception("Failed to save Live Compare recording: %s", exc)
+                error = f"Couldn't save the recording: {exc}"
+            self._lcSaveResult.emit(title, error)
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @Slot(str, str)
+    def _on_lc_save_result(self, title: str, error: str) -> None:
+        """Runs on the GUI thread after the bg stop+save completes."""
+        if error:
+            self.saveFailed.emit(error)
+        elif title:
+            self.videoSaved.emit(title)
 
     # ------------------------------------------------------------------
     # Actions — decorated as @Slot so QML can call them directly

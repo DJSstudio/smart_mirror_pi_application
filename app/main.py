@@ -195,6 +195,8 @@ def main() -> int:
         gallery_ctrl.refresh(),
         session_ctrl.refresh(),
     ))
+    # Surface Live Compare save failures instead of silently losing the clip.
+    playback_service.saveFailed.connect(app_ctrl.showError)
     recording_ctrl = RecordingController(
         camera_service=camera_service,
         recording_service=recording_service,
