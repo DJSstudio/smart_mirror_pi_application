@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -66,18 +67,55 @@ class SettingsService:
     # Private
     # ------------------------------------------------------------------
 
+    @property
+    def _bak_path(self) -> Path:
+        return self._path.with_name(self._path.name + ".bak")
+
+    @property
+    def _tmp_path(self) -> Path:
+        return self._path.with_name(self._path.name + ".tmp")
+
     def _load(self) -> None:
-        if not self._path.exists():
-            return
-        try:
-            loaded = json.loads(self._path.read_text())
-            self._data.update(loaded)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("Could not load settings from %s: %s", self._path, exc)
+        # Try the main file, then the last-good backup, before falling back to
+        # defaults.  Atomic _save means the main file is never half-written,
+        # but the .bak is cheap insurance against SD-card bit-rot.
+        for candidate in (self._path, self._bak_path):
+            if not candidate.exists():
+                continue
+            try:
+                loaded = json.loads(candidate.read_text())
+                self._data.update(loaded)
+                if candidate is not self._path:
+                    LOGGER.warning(
+                        "settings.json unreadable — recovered config from %s",
+                        candidate.name,
+                    )
+                return
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("Could not load settings from %s: %s", candidate, exc)
+        # Nothing loadable — keep the defaults already in self._data.
 
     def _save(self) -> None:
+        # Atomic write: temp file in the same dir → flush+fsync → os.replace.
+        # os.replace is atomic on the same filesystem, so a power-cut on the Pi
+        # can never leave a half-written settings.json — which _load would then
+        # reject, silently reverting EVERY setting to defaults (wrong screens,
+        # wrong camera, and a changed share_server_port that breaks session
+        # persistence).
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json.dumps(self._data, indent=2))
+            data = json.dumps(self._data, indent=2)
+            with open(self._tmp_path, "w", encoding="utf-8") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+            # Snapshot the current good file as .bak before swapping it out.
+            if self._path.exists():
+                try:
+                    import shutil  # noqa: PLC0415
+                    shutil.copy2(self._path, self._bak_path)
+                except OSError as exc:
+                    LOGGER.debug("Could not refresh settings backup: %s", exc)
+            os.replace(self._tmp_path, self._path)
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Could not save settings to %s: %s", self._path, exc)
