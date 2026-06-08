@@ -292,6 +292,37 @@ class RecordingController(QObject):
         self._app.showStatus("Recording discarded.")
         self._emit()
 
+    def reset_for_logout(self) -> None:
+        """Force-discard any in-progress recording/review on logout.
+
+        Called by LoginController BEFORE it navigates to the login screen.
+        Without this, navigation_locked() stays True while a review is
+        pending (``_prepared`` set) or a countdown/recording is in flight,
+        so showLogin()/showDashboard() are rejected and the kiosk wedges on
+        the previous customer's review while the mirror already shows the QR.
+
+        Differs from discardRecording(): no "Recording discarded." status
+        and no mirror touch (the login flow sets the QR next), and it
+        no-ops when there is nothing to tear down.
+        """
+        if not self.navigation_locked():
+            return
+        LOGGER.info("Resetting in-progress recording state for logout")
+        self._cd_timer.stop()
+        self._el_timer.stop()
+        if self._camera.is_active():
+            try:
+                self._camera.stop(discard=True)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("reset_for_logout: camera stop failed")
+        if self._prepared:
+            try:
+                self._recording_svc.discard_prepared(self._prepared)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("reset_for_logout: discard_prepared failed")
+        self._reset_state()
+        self._emit()
+
     # ------------------------------------------------------------------
     # Used by AppController to gate navigation
     # ------------------------------------------------------------------

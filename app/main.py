@@ -214,6 +214,7 @@ def main() -> int:
         mirror_display=mirror_display,
         app_controller=app_ctrl,
         temp_dir=paths.temp_dir,
+        recording_ctrl=recording_ctrl,
     )
     export_ctrl = ExportController(
         gallery_service=gallery_service,

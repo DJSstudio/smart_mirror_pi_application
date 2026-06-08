@@ -49,6 +49,7 @@ class LoginController(QObject):
         mirror_display: MirrorDisplayService,
         app_controller,
         temp_dir: Path,
+        recording_ctrl=None,   # RecordingController — reset on logout
     ) -> None:
         super().__init__()
         self._server = share_server
@@ -60,6 +61,7 @@ class LoginController(QObject):
         self._mirror = mirror_display
         self._app = app_controller
         self._temp_dir = temp_dir
+        self._recording_ctrl = recording_ctrl
 
         self._qr_image_url = ""
         self._server_url = ""
@@ -113,6 +115,14 @@ class LoginController(QObject):
         """Record the logout of any active session, then generate a fresh QR."""
         self._stop_poll()
         self._error = ""
+
+        # Force-discard any in-progress recording or unsaved review FIRST.
+        # Otherwise navigation_locked() rejects the showLogin()/showDashboard()
+        # below (a pending review keeps _prepared set), leaving the control
+        # screen wedged on the previous customer's review while the mirror
+        # already shows the QR — a state only a power-cycle could clear.
+        if self._recording_ctrl is not None:
+            self._recording_ctrl.reset_for_logout()
 
         # Record logout of the currently active session (if any).
         # Only record logout for sessions that have a real user (device_id set).
