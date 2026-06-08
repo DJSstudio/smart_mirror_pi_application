@@ -44,7 +44,8 @@ _MIRROR_REVEAL_AT = 3
 
 class RecordingController(QObject):
     changed = Signal()
-    _bg_stop_done = Signal()  # fired from background thread when stop + prepare completes
+    _bg_stop_done = Signal()     # fired from bg thread when stop + prepare completes
+    _bg_discard_done = Signal()  # fired from bg thread when discard camera-stop completes
 
     def __init__(
         self,
@@ -94,7 +95,9 @@ class RecordingController(QObject):
         # Background stop state — written by bg thread, read on main thread
         self._bg_result: PreparedRecording | None = None
         self._bg_error: str = ""
+        self._discarding = False  # True while a bg discard camera-stop is in flight
         self._bg_stop_done.connect(self._on_bg_stop_done)
+        self._bg_discard_done.connect(self._on_bg_discard_done)
 
     # ------------------------------------------------------------------
     # Properties
@@ -279,15 +282,50 @@ class RecordingController(QObject):
 
     @Slot()
     def discardRecording(self) -> None:
-        """Cancel recording or discard a reviewed clip."""
+        """Cancel recording (countdown or active) or discard a reviewed clip."""
+        if self._discarding:
+            return  # a discard is already in flight — ignore double-taps
         self._cd_timer.stop()
         self._el_timer.stop()
-        # Stop the camera whether we are in warm-up or active-recording state.
-        if self._camera.is_active():
-            self._camera.stop(discard=True)
+
+        # Review state: the camera was already stopped when the recording
+        # finished, so teardown is instant — do it synchronously.
+        if not self._camera.is_active():
+            self._finish_discard()
+            return
+
+        # Active recording / countdown: camera.stop() can block for up to
+        # ~15s (writer-thread join + ffmpeg wait), so run it off the GUI
+        # thread exactly like stopRecording, keeping the UI responsive.
+        self._discarding = True
+        self._busy = True
+        self._app.showStatus("Discarding…")
+        self._emit()
+
+        def _bg() -> None:
+            try:
+                self._camera.stop(discard=True)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.exception("discardRecording: camera stop failed: %s", exc)
+            self._bg_discard_done.emit()
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @Slot()
+    def _on_bg_discard_done(self) -> None:
+        """Runs on the GUI thread after the background camera-stop completes."""
+        self._finish_discard()
+
+    def _finish_discard(self) -> None:
+        """Common discard cleanup — always on the GUI thread.  _reset_state
+        clears _busy, so a wedged/failed bg stop can't leave the kiosk stuck."""
+        self._discarding = False
         self._mirror.show_idle_black()
         if self._prepared:
-            self._recording_svc.discard_prepared(self._prepared)
+            try:
+                self._recording_svc.discard_prepared(self._prepared)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("discardRecording: discard_prepared failed")
         self._reset_state()
         self._app.showStatus("Recording discarded.")
         self._emit()
