@@ -302,11 +302,21 @@ class FootfallRepository:
                     AND f2.logout_at IS NOT NULL
                   ORDER BY f2.logout_at DESC
                   LIMIT 1)                              AS last_logout_reason,
-                COUNT(DISTINCT v.id)                    AS video_count,
-                COALESCE(SUM(v.duration_seconds), 0.0)  AS total_duration_seconds,
+                COALESCE(v.vc, 0)                       AS video_count,
+                COALESCE(v.dur, 0.0)                    AS total_duration_seconds,
                 s.purged_at                             AS purged_at
             FROM footfall f
-            LEFT JOIN videos v ON v.session_id = f.session_id
+            -- Pre-aggregate videos per session BEFORE joining: a direct
+            -- LEFT JOIN videos fans every footfall row out by the video
+            -- count, which inflates COUNT(f.id) (login_count) and
+            -- SUM(duration). Aggregating first keeps footfall 1:1.
+            LEFT JOIN (
+                SELECT session_id,
+                       COUNT(*)                       AS vc,
+                       COALESCE(SUM(duration_seconds), 0.0) AS dur
+                FROM videos
+                GROUP BY session_id
+            ) v ON v.session_id = f.session_id
             LEFT JOIN sessions s ON s.id = f.session_id
             GROUP BY f.session_id
             ORDER BY MAX(f.login_at) DESC

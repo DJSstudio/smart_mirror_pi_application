@@ -70,6 +70,10 @@ class VideoRecord:
     def created_label(self) -> str:
         try:
             stamp = datetime.fromisoformat(self.created_at)
+            # Stored timestamps are UTC-aware; show them in the Pi's local
+            # time so a clip recorded at 14:30 local doesn't display as 09:00.
+            if stamp.tzinfo is not None:
+                stamp = stamp.astimezone()
             return stamp.strftime("%b %d, %Y  %H:%M")
         except ValueError:
             return self.created_at
