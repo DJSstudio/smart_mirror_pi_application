@@ -93,6 +93,15 @@ Item {
                         }
                     }
                 }
+                RowDivider {}
+                SettingRow {
+                    label: "Mirror flip"
+                    description: "Horizontally flip the live preview and recorded video"
+                    Switch {
+                        checked: settingsController.cameraMirrorFlip
+                        onToggled: settingsController.setCameraMirrorFlip(checked)
+                    }
+                }
             }
 
             // ── Mirror Display ────────────────────────────────────────

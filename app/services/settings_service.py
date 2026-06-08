@@ -26,6 +26,8 @@ _DEFAULTS: dict[str, Any] = {
     "mirror_screen_index": 1,
     # Logging
     "log_level": "INFO",
+    # Camera flip
+    "camera_mirror_flip": False,
     # Network — fixed port keeps localStorage device_id consistent across restarts
     "share_server_port": 8765,
     # Idle auto-logout

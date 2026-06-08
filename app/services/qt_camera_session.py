@@ -70,7 +70,8 @@ class QtCameraSession(QObject):
         self._active_sink: QVideoSink = self._internal_sink
         self._frame_handler_connected: bool = False
 
-        # Recording state
+        # Recording settings
+        self._mirror_flip: bool = False
         self._recording_path: Path | None = None
         self._recording_target_fps: int = 30
         self._actual_fps: float = 30.0   # camera-advertised max
@@ -177,7 +178,8 @@ class QtCameraSession(QObject):
     # ------------------------------------------------------------------
 
     def start_preview(self, device_hint: str | None,
-                      width: int, height: int, fps: int) -> None:
+                      width: int, height: int, fps: int,
+                      mirror_flip: bool = False) -> None:
         """Open the camera and stream frames into the active sink.  No recording.
 
         Mirrors scripts/test_qcamera.py exactly: pick the device, hand it
@@ -214,6 +216,7 @@ class QtCameraSession(QObject):
                         fmt.minFrameRate(), fmt.maxFrameRate(),
                         fmt.pixelFormat().name)
 
+        self._mirror_flip = mirror_flip
         self._camera = QCamera(device, self)
         # Pick the best format: MJPEG strongly preferred (Pi can decode it
         # cheaply, raw YUYV is bandwidth/CPU-heavy), then closest resolution
@@ -232,12 +235,13 @@ class QtCameraSession(QObject):
 
     def start_recording(self, device_hint: str | None,
                         width: int, height: int, fps: int,
-                        bitrate: int, output_path: Path) -> Path:
+                        bitrate: int, output_path: Path,
+                        mirror_flip: bool = False) -> Path:
         """Open the camera AND begin piping frames to an ffmpeg subprocess
         that encodes H.264 to ``output_path``.  ffmpeg is spawned lazily on
         the first frame received (so we know the actual pixel format).
         """
-        self.start_preview(device_hint, width, height, fps)
+        self.start_preview(device_hint, width, height, fps, mirror_flip=mirror_flip)
         self._recording_path = output_path
         self._recording_target_fps = fps
         self._first_frame_seen = False
@@ -367,6 +371,8 @@ class QtCameraSession(QObject):
         out_path = self._recording_path
 
         cmd: list[str]
+        vf = ["-vf", "hflip"] if self._mirror_flip else []
+
         if fmt == QVideoFrameFormat.PixelFormat.Format_Jpeg:
             # MJPEG passthrough — tiny pipe bandwidth (compressed).
             cmd = [
@@ -377,14 +383,15 @@ class QtCameraSession(QObject):
                 "-framerate", str(fps_hint),
                 "-i", "pipe:0",
                 "-vsync", "vfr",
+                *vf,
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-tune", "zerolatency",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-y", str(out_path),
             ]
-            LOGGER.info("Recorder: MJPEG → libx264 (wallclock-paced), %dx%d hint=%dfps",
-                        w, h, fps_hint)
+            LOGGER.info("Recorder: MJPEG → libx264 (wallclock-paced), %dx%d hint=%dfps%s",
+                        w, h, fps_hint, " [hflip]" if self._mirror_flip else "")
         else:
             # Raw frames
             ff_pix = _qt_pix_to_ffmpeg(fmt)
@@ -402,14 +409,15 @@ class QtCameraSession(QObject):
                 "-framerate", str(fps_hint),
                 "-i", "pipe:0",
                 "-vsync", "vfr",
+                *vf,
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-tune", "zerolatency",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-y", str(out_path),
             ]
-            LOGGER.info("Recorder: raw %s → libx264 (wallclock-paced), %dx%d hint=%dfps",
-                        ff_pix, w, h, fps_hint)
+            LOGGER.info("Recorder: raw %s → libx264 (wallclock-paced), %dx%d hint=%dfps%s",
+                        ff_pix, w, h, fps_hint, " [hflip]" if self._mirror_flip else "")
 
         self._ffmpeg = subprocess.Popen(
             cmd,

@@ -51,6 +51,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         fps: int,
         bitrate: int,
         device_hint: str | None,
+        mirror_flip: bool = False,
     ) -> CameraPreview:
         self.stop(discard=True)
         mir_port = self.allocate_udp_port()
@@ -82,6 +83,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         fps: int,
         bitrate: int,
         device_hint: str | None,
+        mirror_flip: bool = False,
     ) -> CameraPreview:
         self.stop(discard=True)
         mir_port = self.allocate_udp_port()

@@ -32,6 +32,7 @@ class UsbCameraAdapter(BaseCameraAdapter):
         fps: int,
         bitrate: int,
         device_hint: str | None,
+        mirror_flip: bool = False,
     ) -> CameraPreview:
         self.stop(discard=True)
         device = _resolve_device(device_hint)
@@ -61,6 +62,7 @@ class UsbCameraAdapter(BaseCameraAdapter):
         fps: int,
         bitrate: int,
         device_hint: str | None,
+        mirror_flip: bool = False,
     ) -> CameraPreview:
         self.stop(discard=True)
         device = _resolve_device(device_hint)

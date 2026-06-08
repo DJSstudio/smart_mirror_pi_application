@@ -92,6 +92,15 @@ class SettingsController(QObject):
     def cameraFps(self) -> int:
         return int(self._settings.get("camera_fps", 30))
 
+    @Property(bool, notify=changed)
+    def cameraMirrorFlip(self) -> bool:
+        return bool(self._settings.get("camera_mirror_flip", False))
+
+    @Slot(bool)
+    def setCameraMirrorFlip(self, enabled: bool) -> None:
+        self._settings.set("camera_mirror_flip", enabled)
+        self.changed.emit()
+
     @Slot(int, int, int)
     def setCameraResolution(self, width: int, height: int, fps: int) -> None:
         self._settings.set("camera_width", width)

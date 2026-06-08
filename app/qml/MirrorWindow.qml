@@ -263,6 +263,11 @@ ApplicationWindow {
     Component {
         id: livePreviewComp
         Item {
+            id: _liveFlipWrapper
+            transform: Scale {
+                xScale: settingsController.cameraMirrorFlip ? -1 : 1
+                origin.x: _liveFlipWrapper.width / 2
+            }
             VideoOutput {
                 id: qtLiveOut
                 anchors.fill: parent

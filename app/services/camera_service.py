@@ -44,6 +44,7 @@ class CameraService:
             fps=int(self._settings.get("camera_fps", 30)),
             bitrate=int(self._settings.get("camera_bitrate", 8_000_000)),
             device_hint=self._settings.get("camera_device") or None,
+            mirror_flip=bool(self._settings.get("camera_mirror_flip", False)),
         )
 
     def start_preview_only(self) -> CameraPreview:
@@ -64,6 +65,7 @@ class CameraService:
             fps=int(self._settings.get("camera_fps", 30)),
             bitrate=int(self._settings.get("camera_bitrate", 8_000_000)),
             device_hint=self._settings.get("camera_device") or None,
+            mirror_flip=bool(self._settings.get("camera_mirror_flip", False)),
         )
 
     def stop(self, discard: bool = False) -> CompletedCapture | None:
