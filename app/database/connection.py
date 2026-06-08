@@ -136,8 +136,14 @@ class DatabaseManager:
             try:
                 self.connection.execute(stmt)
                 self.connection.commit()
-            except sqlite3.OperationalError:
-                pass  # column / table already exists
+            except sqlite3.OperationalError as exc:
+                # "duplicate column name" is the expected idempotent re-run.
+                # Anything else (disk full, locked, corruption) is a real
+                # failure that would leave a half-migrated schema — surface it
+                # rather than silently masking it into a later "no such column".
+                if "duplicate column" not in str(exc).lower():
+                    LOGGER.error("Migration failed (%s): %s", stmt, exc)
+                    raise
 
     def close(self) -> None:
         if self._conn is not None:

@@ -121,4 +121,10 @@ class AppController(QObject):
             self._playback.close_active()
         self._page = page
         self.currentPageChanged.emit()
+        # Clear any stale error banner now that we've moved to a fresh screen —
+        # otherwise a transient error stays pinned across every page until the
+        # customer taps the tiny dismiss button (unattended kiosk → never).
+        if self._error:
+            self._error = ""
+            self.errorMessageChanged.emit()
         LOGGER.debug("Navigated to page: %s", page)
