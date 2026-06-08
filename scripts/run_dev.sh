@@ -31,11 +31,12 @@ fi
 echo "Using Qt platform: ${QT_QPA_PLATFORM}"
 
 # ── Qt Multimedia backend ──────────────────────────────────────────────────
-# Qt 6.5+ defaults to the bundled FFmpeg backend, which logs
-# "No HW decoder found" on Pi and then stalls (no V4L2M2M/VAAPI support
-# for our libx264 stream).  Force GStreamer instead — it has proper Pi
-# support and the plugins are already installed on Trixie.
-export QT_MEDIA_BACKEND="${QT_MEDIA_BACKEND:-gstreamer}"
+# Use FFmpeg (system default on Debian Trixie, Qt 6.7+).  The previous
+# GStreamer override caused camerabin pipeline failures on Pi 4 with USB
+# webcams once the system GStreamer stack was updated.  FFmpeg 7.1 handles
+# both QCamera capture (all formats confirmed working on C920e) and
+# QMediaPlayer H.264 playback without issues.
+export QT_MEDIA_BACKEND="${QT_MEDIA_BACKEND:-ffmpeg}"
 
 # ── GStreamer hints for Raspberry Pi ───────────────────────────────────────
 if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then

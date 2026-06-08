@@ -36,8 +36,11 @@ if [ -z "${QT_QPA_PLATFORM:-}" ]; then
 fi
 
 # ── Qt Multimedia backend ─────────────────────────────────────────────────
-# Force GStreamer; the bundled FFmpeg backend stalls on Pi hardware.
-export QT_MEDIA_BACKEND="${QT_MEDIA_BACKEND:-gstreamer}"
+# Use FFmpeg (system default on Debian Trixie, Qt 6.7+).  The previous
+# GStreamer override caused camerabin pipeline failures on Pi 4 with
+# USB webcams once the system GStreamer stack was updated.  FFmpeg handles
+# both QCamera capture and QMediaPlayer playback without issues.
+export QT_MEDIA_BACKEND="${QT_MEDIA_BACKEND:-ffmpeg}"
 
 # ── GStreamer GL hints (Wayland only) ─────────────────────────────────────
 if [ "${QT_QPA_PLATFORM}" = "wayland" ]; then
