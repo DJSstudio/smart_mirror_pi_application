@@ -22,6 +22,10 @@ LOGGER = logging.getLogger(__name__)
 
 class WifiController(QObject):
     changed = Signal()
+    # Private signals marshal worker-thread results back to the GUI thread so
+    # QML-bound state is only ever mutated on the thread that owns it.
+    _scanResult = Signal(list, str, str)     # networks, current_ssid, error
+    _connectResult = Signal(str, str, str)   # current_ssid, status, error
 
     def __init__(self, wifi_service: WifiService) -> None:
         super().__init__()
@@ -31,6 +35,8 @@ class WifiController(QObject):
         self._status: str = "idle"
         self._error: str = ""
         self._available: bool = wifi_service.is_available()
+        self._scanResult.connect(self._on_scan_result)
+        self._connectResult.connect(self._on_connect_result)
 
         if not self._available:
             self._status = "unavailable"
@@ -79,19 +85,32 @@ class WifiController(QObject):
         self.changed.emit()
 
         def _do() -> None:
+            networks: list[dict] = []
+            current = self._current_ssid
+            error = ""
             try:
                 nets = self._service.scan()
-                self._networks = [n.to_dict() for n in nets]
-                self._current_ssid = self._service.current_ssid()
-                self._status = "idle"
-                LOGGER.debug("WiFi scan complete: %d networks", len(self._networks))
+                networks = [n.to_dict() for n in nets]
+                current = self._service.current_ssid()
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning("WiFi scan failed: %s", exc)
-                self._error = str(exc)
-                self._status = "error"
-            self.changed.emit()
+                error = str(exc)
+            self._scanResult.emit(networks, current, error)
 
         threading.Thread(target=_do, daemon=True, name="WifiScan").start()
+
+    @Slot(list, str, str)
+    def _on_scan_result(self, networks: list, current_ssid: str, error: str) -> None:
+        """Apply scan results on the GUI thread."""
+        if error:
+            self._error = error
+            self._status = "error"
+        else:
+            self._networks = networks
+            self._current_ssid = current_ssid
+            self._status = "idle"
+            LOGGER.debug("WiFi scan complete: %d networks", len(networks))
+        self.changed.emit()
 
     @Slot(str, str)
     def connectToNetwork(self, ssid: str, password: str) -> None:
@@ -103,20 +122,29 @@ class WifiController(QObject):
         self.changed.emit()
 
         def _do() -> None:
+            current = self._current_ssid
+            status = "error"
+            error = ""
             try:
                 ok, msg = self._service.connect(ssid, password)
                 if ok:
-                    self._current_ssid = ssid
-                    self._status = "connected"
+                    current = ssid
+                    status = "connected"
                     LOGGER.info("WiFi: connected to %s", ssid)
                 else:
-                    self._error = msg
-                    self._status = "error"
+                    error = msg
                     LOGGER.warning("WiFi: connection failed: %s", msg)
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning("WiFi: connect error: %s", exc)
-                self._error = str(exc)
-                self._status = "error"
-            self.changed.emit()
+                error = str(exc)
+            self._connectResult.emit(current, status, error)
 
         threading.Thread(target=_do, daemon=True, name="WifiConnect").start()
+
+    @Slot(str, str, str)
+    def _on_connect_result(self, current_ssid: str, status: str, error: str) -> None:
+        """Apply connect results on the GUI thread."""
+        self._current_ssid = current_ssid
+        self._status = status
+        self._error = error
+        self.changed.emit()
