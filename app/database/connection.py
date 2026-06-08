@@ -30,6 +30,22 @@ class DatabaseManager:
         with self._lock:
             yield self.connection
 
+    @contextmanager
+    def reading(self):
+        """Acquire the lock for a read issued OFF the Qt main thread.
+
+        The single sqlite3.Connection is shared across threads
+        (check_same_thread=False).  A read fired from an HTTP handler thread
+        (the QR device-check callback) can otherwise interleave with a
+        writer's in-flight transaction on the same connection — yielding a
+        partial view or 'recursive use of cursors'.  Off-thread reads run
+        under the same lock writers use so they can't interleave.  (Main-
+        thread reads don't need this — they're sequenced with writes by the
+        event loop / completion signals.)
+        """
+        with self._lock:
+            yield self.connection
+
     @property
     def connection(self) -> sqlite3.Connection:
         if self._conn is None:

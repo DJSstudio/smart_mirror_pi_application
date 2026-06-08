@@ -40,17 +40,21 @@ class SessionRepository:
         return self.get_active_session()  # type: ignore[return-value]
 
     def get_active_session(self) -> SessionRecord | None:
-        row = self._db.connection.execute(
-            "SELECT * FROM sessions WHERE active=1 ORDER BY started_at DESC LIMIT 1"
-        ).fetchone()
+        # Locked: also called off-thread by the QR device-check callback.
+        with self._db.reading() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE active=1 ORDER BY started_at DESC LIMIT 1"
+            ).fetchone()
         return _row_to_session(row) if row else None
 
     def get_latest_session_for_device(self, device_id: str) -> SessionRecord | None:
         """Return the most recent session that belongs to *device_id*."""
-        row = self._db.connection.execute(
-            "SELECT * FROM sessions WHERE device_id=? ORDER BY started_at DESC LIMIT 1",
-            (device_id,),
-        ).fetchone()
+        # Locked: also called off-thread by the QR device-check callback.
+        with self._db.reading() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE device_id=? ORDER BY started_at DESC LIMIT 1",
+                (device_id,),
+            ).fetchone()
         return _row_to_session(row) if row else None
 
     def activate_session(self, session_id: str, device_id: str) -> SessionRecord | None:
@@ -166,14 +170,16 @@ class VideoRepository:
         return record
 
     def count_videos(self, session_id: str | None = None) -> int:
-        if session_id:
-            row = self._db.connection.execute(
-                "SELECT COUNT(*) AS n FROM videos WHERE session_id=?", (session_id,)
-            ).fetchone()
-        else:
-            row = self._db.connection.execute(
-                "SELECT COUNT(*) AS n FROM videos"
-            ).fetchone()
+        # Locked: also called off-thread by the QR device-check callback.
+        with self._db.reading() as conn:
+            if session_id:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM videos WHERE session_id=?", (session_id,)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM videos"
+                ).fetchone()
         return int(row["n"]) if row else 0
 
 
