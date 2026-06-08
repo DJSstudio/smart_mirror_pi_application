@@ -6,9 +6,13 @@ Exposed to QML as `appController`.
 from __future__ import annotations
 
 import logging
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 LOGGER = logging.getLogger(__name__)
+
+# Auto-dismiss top-level error banners after this long so a transient error
+# isn't pinned forever on an unattended kiosk — long enough to read.
+_ERROR_AUTODISMISS_MS = 10_000
 
 _VALID_PAGES = frozenset({
     "login", "dashboard", "recording", "gallery",
@@ -28,6 +32,13 @@ class AppController(QObject):
         self._status = ""
         self._error = ""
         self._recording_ctrl = None  # set via attach_recording_controller
+        # Auto-dismiss timer for the error banner (created here, on the GUI
+        # thread).  Replaces clearing-on-navigation, which wiped errors — e.g.
+        # a Live Compare saveFailed banner — before the user could read them.
+        self._error_timer = QTimer(self)
+        self._error_timer.setSingleShot(True)
+        self._error_timer.setInterval(_ERROR_AUTODISMISS_MS)
+        self._error_timer.timeout.connect(self.clearError)
 
     def attach_recording_controller(self, ctrl) -> None:
         self._recording_ctrl = ctrl
@@ -99,9 +110,11 @@ class AppController(QObject):
     def showError(self, message: str) -> None:
         self._error = message
         self.errorMessageChanged.emit()
+        self._error_timer.start()  # auto-dismiss after _ERROR_AUTODISMISS_MS
 
     @Slot()
     def clearError(self) -> None:
+        self._error_timer.stop()
         self._error = ""
         self.errorMessageChanged.emit()
 
@@ -121,10 +134,4 @@ class AppController(QObject):
             self._playback.close_active()
         self._page = page
         self.currentPageChanged.emit()
-        # Clear any stale error banner now that we've moved to a fresh screen —
-        # otherwise a transient error stays pinned across every page until the
-        # customer taps the tiny dismiss button (unattended kiosk → never).
-        if self._error:
-            self._error = ""
-            self.errorMessageChanged.emit()
         LOGGER.debug("Navigated to page: %s", page)
