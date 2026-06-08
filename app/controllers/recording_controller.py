@@ -339,6 +339,14 @@ class RecordingController(QObject):
         if self._camera.is_active() and not self._camera.is_alive():
             LOGGER.warning("Camera process died during countdown warm-up")
             self._cd_timer.stop()
+            # Release the dead adapter so CameraService._active is cleared;
+            # otherwise the next Start operates on a stale handle (and can
+            # hang on the legacy Pi/USB paths).  The process is already dead,
+            # so stop() returns promptly.
+            try:
+                self._camera.stop(discard=True)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("Camera stop after countdown crash failed")
             self._preview_source = ""
             self._warmup_mirror_url = ""
             self._mirror.show_idle_black()
@@ -393,11 +401,24 @@ class RecordingController(QObject):
         self._emit()
 
     def _tick_elapsed(self) -> None:
+        # Ignore stray ticks during teardown: stopRecording stops this timer
+        # and sets _busy before the bg stop runs, but a tick already queued in
+        # the event loop can still fire once — without this guard it would see
+        # the camera going down and raise a false "camera died" error, and
+        # double-stop the camera the bg thread is already tearing down.
+        if self._busy or not self._recording:
+            return
         self._elapsed += 1
         # Detect if the camera process crashed mid-recording
         if not self._camera.is_alive():
             LOGGER.warning("Camera process died during recording after %ds", self._elapsed)
             self._el_timer.stop()
+            # Release the dead adapter (process already gone → stop() is quick)
+            # so the next recording doesn't inherit a stale handle.
+            try:
+                self._camera.stop(discard=True)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("Camera stop after recording crash failed")
             self._mirror.show_idle_black()
             self._recording = False
             self._preview_source = ""
