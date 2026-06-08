@@ -42,6 +42,7 @@ class QtCameraAdapter(BaseCameraAdapter):
         bitrate: int,
         device_hint: str | None,
         mirror_flip: bool = False,
+        mirror_orientation_degrees: int = 0,
     ) -> CameraPreview:
         cap_path = work_dir / f"capture_qcam_{id(self):x}.mp4"
         self._session.start_recording(
@@ -50,6 +51,7 @@ class QtCameraAdapter(BaseCameraAdapter):
             bitrate=bitrate,
             output_path=cap_path,
             mirror_flip=mirror_flip,
+            mirror_orientation_degrees=mirror_orientation_degrees,
         )
         self._capture_path = cap_path
         return CameraPreview(
@@ -69,11 +71,13 @@ class QtCameraAdapter(BaseCameraAdapter):
         bitrate: int,
         device_hint: str | None,
         mirror_flip: bool = False,
+        mirror_orientation_degrees: int = 0,
     ) -> CameraPreview:
         self._session.start_preview(
             device_hint=device_hint,
             width=width, height=height, fps=fps,
             mirror_flip=mirror_flip,
+            mirror_orientation_degrees=mirror_orientation_degrees,
         )
         self._capture_path = None
         return CameraPreview(

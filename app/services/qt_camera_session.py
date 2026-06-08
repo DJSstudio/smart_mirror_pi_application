@@ -72,6 +72,7 @@ class QtCameraSession(QObject):
 
         # Recording settings
         self._mirror_flip: bool = False
+        self._mirror_orientation_degrees: int = 0
         self._recording_path: Path | None = None
         self._recording_target_fps: int = 30
         self._actual_fps: float = 30.0   # camera-advertised max
@@ -179,7 +180,8 @@ class QtCameraSession(QObject):
 
     def start_preview(self, device_hint: str | None,
                       width: int, height: int, fps: int,
-                      mirror_flip: bool = False) -> None:
+                      mirror_flip: bool = False,
+                      mirror_orientation_degrees: int = 0) -> None:
         """Open the camera and stream frames into the active sink.  No recording.
 
         Mirrors scripts/test_qcamera.py exactly: pick the device, hand it
@@ -217,6 +219,7 @@ class QtCameraSession(QObject):
                         fmt.pixelFormat().name)
 
         self._mirror_flip = mirror_flip
+        self._mirror_orientation_degrees = mirror_orientation_degrees
         self._camera = QCamera(device, self)
         # Pick the best format: MJPEG strongly preferred (Pi can decode it
         # cheaply, raw YUYV is bandwidth/CPU-heavy), then closest resolution
@@ -236,12 +239,15 @@ class QtCameraSession(QObject):
     def start_recording(self, device_hint: str | None,
                         width: int, height: int, fps: int,
                         bitrate: int, output_path: Path,
-                        mirror_flip: bool = False) -> Path:
+                        mirror_flip: bool = False,
+                        mirror_orientation_degrees: int = 0) -> Path:
         """Open the camera AND begin piping frames to an ffmpeg subprocess
         that encodes H.264 to ``output_path``.  ffmpeg is spawned lazily on
         the first frame received (so we know the actual pixel format).
         """
-        self.start_preview(device_hint, width, height, fps, mirror_flip=mirror_flip)
+        self.start_preview(device_hint, width, height, fps,
+                          mirror_flip=mirror_flip,
+                          mirror_orientation_degrees=mirror_orientation_degrees)
         self._recording_path = output_path
         self._recording_target_fps = fps
         self._first_frame_seen = False
@@ -371,7 +377,14 @@ class QtCameraSession(QObject):
         out_path = self._recording_path
 
         cmd: list[str]
-        vf = ["-vf", "hflip"] if self._mirror_flip else []
+        if self._mirror_flip:
+            # 90°/270° rotations swap the viewer's perceived axes: what looks
+            # like left↔right to the viewer is actually top↔bottom in the raw
+            # image, so use vflip.  0°/180° keep the axes aligned → hflip.
+            flip_filter = "vflip" if self._mirror_orientation_degrees in (90, 270) else "hflip"
+            vf = ["-vf", flip_filter]
+        else:
+            vf = []
 
         if fmt == QVideoFrameFormat.PixelFormat.Format_Jpeg:
             # MJPEG passthrough — tiny pipe bandwidth (compressed).

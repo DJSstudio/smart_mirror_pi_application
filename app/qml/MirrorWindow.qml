@@ -265,8 +265,15 @@ ApplicationWindow {
         Item {
             id: _liveFlipWrapper
             transform: Scale {
-                xScale: settingsController.cameraMirrorFlip ? -1 : 1
-                origin.x: _liveFlipWrapper.width / 2
+                // At 90°/270° the viewer's left↔right maps to image top↔bottom,
+                // so vflip (yScale) is the perceptual mirror; hflip otherwise.
+                readonly property bool isPortrait:
+                    mirrorDisplay && (mirrorDisplay.orientationDegrees === 90
+                                   || mirrorDisplay.orientationDegrees === 270)
+                xScale: (settingsController.cameraMirrorFlip && !isPortrait) ? -1 : 1
+                yScale: (settingsController.cameraMirrorFlip &&  isPortrait) ? -1 : 1
+                origin.x: _liveFlipWrapper.width  / 2
+                origin.y: _liveFlipWrapper.height / 2
             }
             VideoOutput {
                 id: qtLiveOut

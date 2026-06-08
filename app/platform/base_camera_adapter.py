@@ -30,6 +30,7 @@ class BaseCameraAdapter(ABC):
         bitrate: int,
         device_hint: str | None,
         mirror_flip: bool = False,
+        mirror_orientation_degrees: int = 0,
     ) -> CameraPreview: ...
 
     @abstractmethod
@@ -43,6 +44,7 @@ class BaseCameraAdapter(ABC):
         bitrate: int,
         device_hint: str | None,
         mirror_flip: bool = False,
+        mirror_orientation_degrees: int = 0,
     ) -> CameraPreview: ...
 
     @abstractmethod
