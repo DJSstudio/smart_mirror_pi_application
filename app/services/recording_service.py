@@ -61,6 +61,7 @@ class RecordingService:
                     trim_mp4(capture.file_path, trimmed, trim_start)
                 except Exception as exc:  # noqa: BLE001
                     safe_unlink(trimmed)
+                    safe_unlink(capture.file_path)  # don't orphan the source
                     raise RuntimeError(f"Failed to trim recording: {exc}") from exc
                 safe_unlink(capture.file_path)
                 return PreparedRecording(file_path=trimmed, backend=capture.backend)

@@ -147,14 +147,26 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
 
     def _spawn(self, *, rpicam_args: list[str], ffmpeg_args: list[str]) -> None:
         self._logger.info("Starting Raspberry Pi camera pipeline")
+        if not shutil.which("ffmpeg"):
+            raise RuntimeError("ffmpeg is required for Raspberry Pi camera capture")
         self._rpicam_proc = subprocess.Popen(rpicam_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         assert self._rpicam_proc.stdout is not None
-        self._ffmpeg_proc = subprocess.Popen(
-            ffmpeg_args,
-            stdin=self._rpicam_proc.stdout,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        try:
+            # ffmpeg stdout is unused (tee → file/UDP) → DEVNULL so it can't
+            # fill and stall.  rpicam stdout stays a PIPE feeding ffmpeg stdin.
+            self._ffmpeg_proc = subprocess.Popen(
+                ffmpeg_args,
+                stdin=self._rpicam_proc.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+        except Exception:
+            # Don't leave rpicam-vid orphaned holding the CSI camera if the
+            # ffmpeg spawn fails (e.g. ENOMEM under pressure).
+            self._rpicam_proc.kill()
+            self._rpicam_proc.wait()
+            self._rpicam_proc = None
+            raise
         self._rpicam_proc.stdout.close()  # let ffmpeg own the pipe
         self._start_pipe_logger("rpicam", self._rpicam_proc.stderr)
         self._start_pipe_logger("ffmpeg", self._ffmpeg_proc.stderr)

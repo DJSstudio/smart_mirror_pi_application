@@ -121,7 +121,9 @@ class UsbCameraAdapter(BaseCameraAdapter):
     def _spawn(self, command: list[str]) -> None:
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg is required for USB camera capture")
-        self._proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # stdout is unused (capture/preview go to file/UDP via the tee); use
+        # DEVNULL so an undrained pipe can never fill and stall ffmpeg.
+        self._proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         self._start_pipe_logger("ffmpeg", self._proc.stderr)
 
 

@@ -170,7 +170,11 @@ class ShareServer:
     def stop(self) -> None:
         if self._server:
             self._server.shutdown()
+            self._server.server_close()  # release the listening socket FD
             self._server = None
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
         self._port = 0
 
     @property
