@@ -131,6 +131,14 @@ class LoginController(QObject):
         active = self._session_svc.get_active_session()
         if active and active.device_id:
             self._footfall.record_logout(active.id, reason=reason)
+            # End the session (active=0) so CleanupService can purge its videos
+            # on the inactivity threshold — otherwise the last customer's clips
+            # linger until the NEXT scan flips the session inactive, and the
+            # still-active session could be offered to a stranger as "Resume".
+            # A returning customer can still resume it (resume reactivates by
+            # device_id).  Anonymous placeholders are left alone so the periodic
+            # QR refresh doesn't churn them.
+            self._session_svc.end_active_session()
             LOGGER.info(
                 "Footfall: logout session=%s reason=%s", active.id[:8], reason
             )

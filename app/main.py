@@ -239,11 +239,24 @@ def main() -> int:
     # ----------------------------------------------------------------
     # Idle auto-logout
     # ----------------------------------------------------------------
-    _idle_timeout_ms = int(settings.get("idle_timeout_seconds", 300)) * 1_000
-    _idle_warning_ms = int(settings.get("idle_warning_seconds", 60)) * 1_000
+    def _int_setting(key: str, default: int, lo: int, hi: int) -> int:
+        try:
+            return max(lo, min(hi, int(settings.get(key, default))))
+        except (TypeError, ValueError):
+            LOGGER.warning("Setting %s is invalid; using default %d", key, default)
+            return default
+
+    _idle_timeout_s = _int_setting("idle_timeout_seconds", 300, 30, 86_400)
+    _idle_warning_s = _int_setting("idle_warning_seconds", 60, 5, 3_600)
+    # IdleService requires warning < timeout, else it raises and the app never
+    # starts.  Clamp a bad combination instead of crashing the kiosk.
+    if _idle_warning_s >= _idle_timeout_s:
+        _idle_warning_s = max(5, _idle_timeout_s // 2)
+        LOGGER.warning("idle_warning_seconds >= idle_timeout_seconds; clamped to %d",
+                       _idle_warning_s)
     idle_service = IdleService(
-        timeout_ms=_idle_timeout_ms,
-        warning_ms=_idle_warning_ms,
+        timeout_ms=_idle_timeout_s * 1_000,
+        warning_ms=_idle_warning_s * 1_000,
     )
     idle_service.install(app)
     idle_service.timedOut.connect(login_ctrl.autoLogout)
