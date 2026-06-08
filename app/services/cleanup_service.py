@@ -9,6 +9,7 @@ stamped with data_deleted_at, and the session row gets purged_at.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,6 +18,11 @@ from app.database.repositories import VideoRepository
 
 LOGGER = logging.getLogger(__name__)
 
+# Temp capture files older than this are considered abandoned and swept.
+# A live recording keeps its file's mtime fresh (ffmpeg writes continuously),
+# so anything this stale cannot be an in-flight capture.
+_TEMP_STALE_MINUTES = 30.0
+
 
 class CleanupService:
     def __init__(
@@ -24,9 +30,11 @@ class CleanupService:
         *,
         db: DatabaseManager,
         video_repo: VideoRepository,
+        temp_dir: Path | None = None,
     ) -> None:
         self._db = db
         self._video_repo = video_repo
+        self._temp_dir = temp_dir
 
     def run(self, older_than_hours: float = 1.0) -> int:
         """Delete video data for sessions inactive longer than *older_than_hours*.
@@ -87,7 +95,41 @@ class CleanupService:
         else:
             LOGGER.debug("Auto-cleanup: nothing to purge (threshold: %s)", threshold)
 
+        # Sweep abandoned temp capture files (orphaned by crash/power-cut
+        # mid-recording, or an abandoned review).  Runs every cleanup cycle.
+        self._sweep_temp_dir()
+
         return cleaned
+
+    def _sweep_temp_dir(self, older_than_minutes: float = _TEMP_STALE_MINUTES) -> int:
+        """Delete stale capture_* files from temp_dir.
+
+        Captures are normally removed on a clean stop/save/discard, but a
+        crash or power-cut mid-recording leaves them behind, and nothing else
+        ever sweeps temp_dir (login QRs self-clean separately).  Over weeks
+        these fill the SD card, eventually tripping the recording disk-guard
+        and blocking all recording.  Files whose mtime is older than the
+        threshold cannot be an in-flight recording, so they're safe to delete.
+
+        Pattern ``capture_*`` covers every variant: capture_qcam_*.mp4,
+        capture_lc_*.mp4, capture_<pid>_<port>.h264, the remuxed .mp4, and
+        the *_trimmed.mp4 intermediates (all share the capture_ prefix).
+        """
+        if self._temp_dir is None or not self._temp_dir.exists():
+            return 0
+        cutoff = time.time() - older_than_minutes * 60
+        swept = 0
+        for path in self._temp_dir.glob("capture_*"):
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    swept += 1
+                    LOGGER.info("Auto-cleanup: removed stale temp capture %s", path.name)
+            except OSError as exc:
+                LOGGER.warning("Auto-cleanup: could not remove temp file %s: %s", path, exc)
+        if swept:
+            LOGGER.info("Auto-cleanup: swept %d stale temp capture file(s)", swept)
+        return swept
 
     def _purge_session(self, session_id: str) -> None:
         """Delete all video files and DB rows for *session_id*.

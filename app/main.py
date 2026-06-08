@@ -130,7 +130,7 @@ def main() -> int:
     # Auto-cleanup: delete video data for sessions idle > threshold.
     # Runs once at startup (before Qt) then every 30 min via QTimer below.
     _cleanup_hours = float(settings.get("session_cleanup_hours", 1))
-    cleanup_service = CleanupService(db=db, video_repo=video_repo)
+    cleanup_service = CleanupService(db=db, video_repo=video_repo, temp_dir=paths.temp_dir)
     cleanup_service.run(older_than_hours=_cleanup_hours)
 
     _share_port = int(settings.get("share_server_port", 8765))
