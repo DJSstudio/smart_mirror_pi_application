@@ -79,7 +79,8 @@ class SessionRepository:
         """Stamp *device_id* onto the active session if it has no owner yet."""
         with self._db.transaction() as conn:
             conn.execute(
-                "UPDATE sessions SET device_id=? WHERE active=1 AND (device_id IS NULL OR device_id='')",
+                "UPDATE sessions SET device_id=? "
+                "WHERE active=1 AND (device_id IS NULL OR device_id='')",
                 (device_id,),
             )
             conn.commit()
