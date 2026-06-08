@@ -384,17 +384,34 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
-                VideoOutput {
-                    id: liveCmpOut
+                // Mirror-flip wraps ONLY the VideoOutput, not the LIVE badge
+                // below (which would otherwise render mirrored).  Same
+                // orientation-aware logic as livePreviewComp's _liveFlipWrapper:
+                // hflip at 0°/180°, vflip at 90°/270°.
+                Item {
+                    id: _liveCmpFlipWrapper
                     anchors.fill: parent
-                    fillMode: mirrorDisplay.compareFillCrop
-                        ? VideoOutput.PreserveAspectCrop
-                        : VideoOutput.PreserveAspectFit
-                    Component.onCompleted: {
-                        if (qtCamera) qtCamera.attachSink(liveCmpOut.videoSink)
+                    transform: Scale {
+                        readonly property bool isPortrait:
+                            mirrorDisplay && (mirrorDisplay.orientationDegrees === 90
+                                           || mirrorDisplay.orientationDegrees === 270)
+                        xScale: (settingsController.cameraMirrorFlip && !isPortrait) ? -1 : 1
+                        yScale: (settingsController.cameraMirrorFlip &&  isPortrait) ? -1 : 1
+                        origin.x: _liveCmpFlipWrapper.width  / 2
+                        origin.y: _liveCmpFlipWrapper.height / 2
                     }
-                    Component.onDestruction: {
-                        if (qtCamera) qtCamera.detachSink()
+                    VideoOutput {
+                        id: liveCmpOut
+                        anchors.fill: parent
+                        fillMode: mirrorDisplay.compareFillCrop
+                            ? VideoOutput.PreserveAspectCrop
+                            : VideoOutput.PreserveAspectFit
+                        Component.onCompleted: {
+                            if (qtCamera) qtCamera.attachSink(liveCmpOut.videoSink)
+                        }
+                        Component.onDestruction: {
+                            if (qtCamera) qtCamera.detachSink()
+                        }
                     }
                 }
 
