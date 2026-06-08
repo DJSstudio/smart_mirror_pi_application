@@ -218,6 +218,26 @@ class TestDownloadAuthorization:
         assert self._get(srv, "/")[0] == 404
         assert self._get(srv, "/api/videos")[0] == 404
 
+    def test_token_pages_reject_malformed_token(self, live_server) -> None:
+        # Reflected-XSS guard: a token outside the token_urlsafe alphabet must
+        # be rejected (404) BEFORE it is reflected into any HTML/JS template.
+        import urllib.parse
+        srv, _ = live_server
+        bad = urllib.parse.quote("x';alert(document.cookie)//", safe="")
+        assert self._get(srv, f"/session/{bad}")[0] == 404
+        assert self._get(srv, f"/export/{bad}")[0] == 404
+        assert self._get(srv, f"/qr/activate?token={bad}")[0] == 404
+
+    def test_token_page_json_encodes_token(self, live_server) -> None:
+        # A well-formed token renders the page with the token JSON-encoded into
+        # a double-quoted JS literal — never the old single-quoted form that the
+        # _esc()-based code allowed to break out of.
+        srv, _ = live_server
+        code, body = self._get(srv, "/qr/activate?token=AbC123_-xyz")
+        assert code == 200
+        assert b'var token="AbC123_-xyz";' in body
+        assert b"var token='" not in body
+
     def test_download_without_token_forbidden(self, live_server) -> None:
         srv, _ = live_server
         assert self._get(srv, "/download/vid-1")[0] == 403

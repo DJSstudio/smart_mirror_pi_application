@@ -857,6 +857,7 @@ class ShareServer:
                 )
                 self.send_response(200)
                 self.send_header("Content-Type", mime)
+                self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Length", str(size))
                 self.send_header(
                     "Content-Disposition",
@@ -892,6 +893,7 @@ class ShareServer:
                 data = json.dumps(obj).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Length", str(len(data)))
                 if set_cookie:
                     self.send_header("Set-Cookie", set_cookie)
@@ -902,6 +904,7 @@ class ShareServer:
                 data = msg.encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "text/plain")
+                self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
