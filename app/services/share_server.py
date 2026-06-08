@@ -539,6 +539,17 @@ class ShareServer:
                 self._rl_buckets[ip] = _RateBucket(tokens=float(_RL_BURST))
             return self._rl_buckets[ip].allow()
 
+    def prune_expired(self) -> None:
+        """Prune expired tokens and idle rate-limit buckets.
+
+        Called from the 30-minute cleanup timer in main.py alongside
+        CleanupService.  Each collection owns its own purge logic:
+          - export / dl / session / login tokens  → wall-clock expiry
+          - rate-limit buckets                    → 10-minute idle cutoff
+        """
+        self._purge_expired()
+        self._prune_rl_buckets()
+
     def _purge_expired(self) -> None:
         now = time.time()
         with self._lock:
@@ -551,6 +562,19 @@ class ShareServer:
             expired_sess = [t for t, (exp, _) in self._session_tokens.items() if now > exp]
             for t in expired_sess:
                 del self._session_tokens[t]
+            # Login tokens: (status, expiry, device_id, action) — index 1 is expiry
+            expired_login = [h for h, entry in self._login_tokens.items() if now > entry[1]]
+            for h in expired_login:
+                del self._login_tokens[h]
+
+    def _prune_rl_buckets(self) -> None:
+        cutoff = time.monotonic() - 600  # drop buckets idle for > 10 min
+        with self._rl_lock:
+            stale = [ip for ip, b in self._rl_buckets.items() if b.last_refill < cutoff]
+            for ip in stale:
+                del self._rl_buckets[ip]
+        if stale:
+            LOGGER.debug("Rate-limit: pruned %d idle bucket(s)", len(stale))
 
     def _get_snapshot(self) -> tuple[str, list[_VideoSnapshot]]:
         with self._lock:

@@ -169,7 +169,10 @@ def main() -> int:
     # Periodic cleanup — runs every 30 minutes while the app is open.
     _cleanup_timer = QTimer()
     _cleanup_timer.setInterval(30 * 60 * 1_000)  # 30 minutes
-    _cleanup_timer.timeout.connect(lambda: cleanup_service.run(older_than_hours=_cleanup_hours))
+    _cleanup_timer.timeout.connect(lambda: (
+        cleanup_service.run(older_than_hours=_cleanup_hours),
+        share_server.prune_expired(),
+    ))
     _cleanup_timer.start()
 
     # ----------------------------------------------------------------
