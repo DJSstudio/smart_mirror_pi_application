@@ -28,8 +28,12 @@ _DEFAULTS: dict[str, Any] = {
     "log_level": "INFO",
     # Camera flip
     "camera_mirror_flip": False,
-    # Network — fixed port keeps localStorage device_id consistent across restarts
+    # Network — fixed port keeps the device cookie consistent across restarts
     "share_server_port": 8765,
+    # Opt-in self-signed HTTPS for the share server.  Off by default: walk-up
+    # phones get a one-time certificate warning.  Prefer WPA3 at the router for
+    # on-the-wire confidentiality without that warning.
+    "share_server_tls": False,
     # Idle auto-logout
     "idle_timeout_seconds": 300,
     "idle_warning_seconds": 60,

@@ -173,3 +173,111 @@ class TestLoginTokens:
         server.invalidate_login_token(token_hash)
         status, _, _ = server.check_login_status(token_hash)
         assert status == "expired"
+
+
+# ---------------------------------------------------------------------------
+# ShareServer — HTTP download authorization
+# Regression guard for the open-endpoint fix: /, /api/videos must be gone and
+# /download/<id> must require a valid session token bound to the device.
+# ---------------------------------------------------------------------------
+
+class _FakeVideo:
+    def __init__(self, vid: str, path: str) -> None:
+        self.id = vid
+        self.title = "Look 1"
+        self.file_path = path
+        self.duration_seconds = 5.0
+
+    def created_label(self) -> str:
+        return "Today"
+
+
+class TestDownloadAuthorization:
+    @pytest.fixture()
+    def live_server(self, tmp_path):
+        video_file = tmp_path / "clip.mp4"
+        video_file.write_bytes(b"DATA" * 256)
+        srv = ShareServer(host="127.0.0.1", port=0)
+        srv.start()
+        srv.update_gallery("S", [_FakeVideo("vid-1", str(video_file))])
+        yield srv, str(video_file)
+        srv.stop()
+
+    @staticmethod
+    def _get(srv: ShareServer, path: str):
+        import urllib.error
+        import urllib.request
+        try:
+            r = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}{path}", timeout=5)
+            return r.status, r.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read()
+
+    def test_open_gallery_routes_removed(self, live_server) -> None:
+        srv, _ = live_server
+        assert self._get(srv, "/")[0] == 404
+        assert self._get(srv, "/api/videos")[0] == 404
+
+    def test_download_without_token_forbidden(self, live_server) -> None:
+        srv, _ = live_server
+        assert self._get(srv, "/download/vid-1")[0] == 403
+
+    def test_download_wrong_device_forbidden(self, live_server) -> None:
+        srv, _ = live_server
+        tok = srv.create_session_token(required_device_id="owner")
+        code = self._get(srv, f"/download/vid-1?token={tok}&device_id=attacker")[0]
+        assert code == 403
+
+    def test_download_valid_owner_streams_file(self, live_server) -> None:
+        import os
+        srv, path = live_server
+        tok = srv.create_session_token(required_device_id="owner")
+        code, body = self._get(srv, f"/download/vid-1?token={tok}&device_id=owner")
+        assert code == 200
+        assert len(body) == os.path.getsize(path)
+
+    def test_anonymous_session_allows_any_device(self, live_server) -> None:
+        srv, _ = live_server
+        tok = srv.create_session_token(required_device_id="")
+        code = self._get(srv, f"/download/vid-1?token={tok}&device_id=whatever")[0]
+        assert code == 200
+
+    def test_download_token_only_no_identity_forbidden(self, live_server) -> None:
+        # Valid session token but no cookie and no device_id param → device
+        # check fails (device-gated session).
+        srv, _ = live_server
+        tok = srv.create_session_token(required_device_id="owner")
+        assert self._get(srv, f"/download/vid-1?token={tok}")[0] == 403
+
+    def test_download_with_device_cookie(self, live_server) -> None:
+        # The HttpOnly cookie carries the device identity (H1) — no device_id
+        # in the URL needed.
+        import urllib.request
+        srv, _ = live_server
+        tok = srv.create_session_token(required_device_id="owner")
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{srv.port}/download/vid-1?token={tok}",
+            headers={"Cookie": "mirror_did=owner"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            assert r.status == 200
+
+    def test_qr_confirm_sets_httponly_device_cookie(self, live_server) -> None:
+        # First QR confirm with no cookie mints + sets a server-side device id.
+        import urllib.request
+        srv, _ = live_server
+        raw, _ = srv.create_login_token()
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{srv.port}/api/qr/confirm?token={raw}", timeout=5
+        ) as r:
+            set_cookie = r.headers.get("Set-Cookie", "")
+        assert "mirror_did=" in set_cookie
+        assert "HttpOnly" in set_cookie
+
+    def test_clear_session_data_revokes_access(self, live_server) -> None:
+        # H3: logout clears the snapshot + invalidates the session token.
+        srv, _ = live_server
+        tok = srv.create_session_token(required_device_id="owner")
+        assert self._get(srv, f"/download/vid-1?token={tok}&device_id=owner")[0] == 200
+        srv.clear_session_data()
+        assert self._get(srv, f"/download/vid-1?token={tok}&device_id=owner")[0] == 403

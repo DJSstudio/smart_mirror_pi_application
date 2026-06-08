@@ -188,7 +188,7 @@ class ExportController(QObject):
         self._server.update_gallery(session_name, videos)
         ip = get_local_ip()
         port = self._server.port
-        self._server_url = f"http://{ip}:{port}"
+        self._server_url = f"{self._server.url_scheme}://{ip}:{port}"
 
     def _gen_qr(self, url: str, filename: str) -> Path:
         path = self._temp_dir / filename
