@@ -93,7 +93,13 @@ class RecordingService:
     def save_prepared(self, recording: PreparedRecording) -> VideoRecord:
         session = self._sessions.ensure_active_session()
         sequence = self._repo.count_videos(session.id) + 1
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Microsecond suffix makes the filename collision-proof even if two
+        # saves race (e.g. a bg Live Compare save overlapping a GUI review
+        # save) and compute the same `sequence` — without it both derived the
+        # same `<ts>_look_NNN.mp4` and the second move OVERWROTE the first
+        # clip (videos.file_path has no UNIQUE constraint). The "Look N" title
+        # may still duplicate (cosmetic); the file never does.
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         src = recording.file_path
         dest = self._paths.videos_dir / f"{ts}_look_{sequence:03d}.mp4"
         thumb_path = self._paths.thumbnails_dir / f"{dest.stem}.jpg"
@@ -133,6 +139,7 @@ class RecordingService:
                 shutil.move(str(dest), str(src))  # roll back so retry works
             except Exception:  # noqa: BLE001
                 LOGGER.exception("save_prepared: rollback move failed (file at %s)", dest)
+                safe_unlink(dest)  # move-back failed → don't leave an unreferenced orphan
             if thumbnail:
                 safe_unlink(thumb_path)
             raise

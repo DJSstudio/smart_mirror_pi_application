@@ -200,17 +200,14 @@ class PlaybackService(QObject):
 
     @Slot()
     def stopLiveCompareRecording(self) -> None:
-        """Stop the Live Compare recording and save the file directly to
-        the gallery (no review screen — recording started on user tap, no
-        warmup to trim).
+        """Stop the Live Compare recording and save the file to the gallery
+        (no review screen — recording started on user tap, no warmup to trim).
 
-        The blocking work — end_recording() (writer-thread join + ffmpeg
-        wait, up to ~15s) plus the remux/probe/DB save — runs on a bg thread
-        so the GUI stays responsive.  end_recording keeps the QCamera running
-        (no QObject teardown) and the save path is already used off-thread by
-        RecordingController, so this is safe off the GUI thread.  The result
-        is marshalled back via _lcSaveResult so a save failure is surfaced to
-        the user instead of silently losing the clip.
+        end_recording() runs on the GUI thread (it tears down session/Qt state
+        and must finish before close_active() stops the camera); only the
+        file/DB save is offloaded to a bg thread. The result is marshalled back
+        via _lcSaveResult so a save failure is surfaced to the user via
+        saveFailed instead of silently losing the clip.
         """
         if not self._lc_recording or self._qt_camera is None:
             return
@@ -219,27 +216,37 @@ class PlaybackService(QObject):
         self._lc_recording_path = None
         self.changed.emit()
 
-        qt_camera = self._qt_camera
+        # end_recording() finalizes the file AND tears down recording state on
+        # the shared QCamera session (sink disconnect, writer join, ffmpeg
+        # close).  It MUST run on the GUI thread — both because that teardown
+        # touches Qt objects, and because it must complete BEFORE close_active()
+        # (called right after this in the QML Close handler) stops the camera.
+        # Running it on a bg thread raced close_active on the shared session and
+        # let its discard unlink the file mid-save (corrupted/lost clip, crash).
+        # Only the file/DB save below — which touches neither Qt nor the session
+        # — is offloaded.  In practice end_recording is <1s (ffmpeg just writes
+        # the MP4 trailer for an already-encoded stream).
+        actual_path = self._qt_camera.end_recording()
+        if actual_path is None or not actual_path.exists():
+            LOGGER.warning("Live Compare recording produced no file")
+            self.saveFailed.emit("Recording produced no file.")
+            return
+
         recording_svc = self._recording_svc
 
         def _bg() -> None:
             title, error = "", ""
             try:
-                actual_path = qt_camera.end_recording()
-                if actual_path is None or not actual_path.exists():
-                    LOGGER.warning("Live Compare recording produced no file")
-                    error = "Recording produced no file."
-                else:
-                    from app.models.entities import CompletedCapture  # noqa: PLC0415
-                    capture = CompletedCapture(
-                        file_path=actual_path,
-                        file_format="mp4",
-                        backend="usb_qt_lc",
-                    )
-                    prepared = recording_svc.prepare_review(capture, trim_start=0.0)
-                    video = recording_svc.save_prepared(prepared)
-                    LOGGER.info("Live Compare recording saved: %s", video.title)
-                    title = video.title
+                from app.models.entities import CompletedCapture  # noqa: PLC0415
+                capture = CompletedCapture(
+                    file_path=actual_path,
+                    file_format="mp4",
+                    backend="usb_qt_lc",
+                )
+                prepared = recording_svc.prepare_review(capture, trim_start=0.0)
+                video = recording_svc.save_prepared(prepared)
+                LOGGER.info("Live Compare recording saved: %s", video.title)
+                title = video.title
             except Exception as exc:  # noqa: BLE001
                 LOGGER.exception("Failed to save Live Compare recording: %s", exc)
                 error = f"Couldn't save the recording: {exc}"
