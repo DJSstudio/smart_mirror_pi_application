@@ -849,11 +849,15 @@ class ShareServer:
                 )
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
+                # 30-second write timeout: if the phone goes silent (screen
+                # locked, walked out of range) the OS buffer fills and write()
+                # blocks forever.  This releases the thread promptly.
+                self.connection.settimeout(30)
                 with open(path, "rb") as fh:
                     while chunk := fh.read(65536):
                         try:
                             self.wfile.write(chunk)
-                        except (BrokenPipeError, ConnectionResetError):
+                        except (BrokenPipeError, ConnectionResetError, TimeoutError):
                             break
 
             def _html(self, body: str):
