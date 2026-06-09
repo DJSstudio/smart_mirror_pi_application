@@ -159,6 +159,10 @@ class DatabaseManager:
                     raise
 
     def close(self) -> None:
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        # Take the lock so we never close the connection out from under an
+        # in-flight writer/reader on a daemon thread (e.g. a Live Compare save
+        # still committing at shutdown).
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
