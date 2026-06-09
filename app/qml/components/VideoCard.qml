@@ -148,7 +148,7 @@ Rectangle {
 
         MouseArea {
             anchors { fill: parent; margins: -6 }
-            onClicked: { mouse.accepted = true; root.checkboxTapped() }
+            onClicked: (mouse) => { mouse.accepted = true; root.checkboxTapped() }
         }
     }
 }

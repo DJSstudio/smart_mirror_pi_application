@@ -236,14 +236,24 @@ class ShareServer:
         openssl = shutil.which("openssl")
         if not openssl:
             raise RuntimeError("openssl not found — cannot generate a TLS certificate")
+        # Modern mobile browsers reject a cert with no subjectAltName even after
+        # the user accepts the self-signed warning, so the SAN-less cert made
+        # TLS effectively unusable on phones.  Include the current LAN IP (and
+        # localhost) as SANs.  NOTE: if the Pi's IP changes, delete the cert so
+        # it regenerates with the new address.
+        from app.services.network_service import get_local_ip  # noqa: PLC0415
+        ip = get_local_ip()
+        san = f"subjectAltName=IP:{ip},IP:127.0.0.1,DNS:smart-mirror.local"
         subprocess.run(
             [
                 openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
                 "-keyout", str(key), "-out", str(cert),
                 "-days", "3650", "-subj", "/CN=Smart Mirror",
+                "-addext", san,
             ],
             check=True, capture_output=True, timeout=60,
         )
+        LOGGER.info("Share server: TLS cert SAN = %s", san)
         try:
             key.chmod(0o600)
         except OSError:
