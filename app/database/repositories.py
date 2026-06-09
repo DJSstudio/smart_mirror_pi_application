@@ -86,13 +86,15 @@ class SessionRepository:
             conn.commit()
 
     def list_sessions(self, limit: int = 20) -> list[SessionRecord]:
-        rows = self._db.connection.execute(
-            "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        with self._db.reading() as conn:
+            rows = conn.execute(
+                "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [_row_to_session(r) for r in rows]
 
     def count_sessions(self) -> int:
-        row = self._db.connection.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()
+        with self._db.reading() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()
         return int(row["n"]) if row else 0
 
     def end_session(self, session_id: str) -> None:
@@ -138,24 +140,36 @@ class VideoRepository:
                  duration_seconds, now, camera_backend, notes, width, height),
             )
             conn.commit()
-        return self.get_video(vid)  # type: ignore[return-value]
+        # Build the record from the values just inserted instead of a post-commit
+        # re-SELECT: the re-read ran on the shared connection WITHOUT the lock
+        # (this is called on the Live Compare bg-save thread), which could run a
+        # concurrent cursor against another thread's query, and could TOCTOU-miss
+        # a row a concurrent purge just deleted.
+        return VideoRecord(
+            id=vid, session_id=session_id, title=title, file_path=file_path,
+            thumbnail_path=thumbnail_path, duration_seconds=duration_seconds,
+            created_at=now, camera_backend=camera_backend, notes=notes,
+            width=width, height=height,
+        )
 
     def get_video(self, video_id: str) -> VideoRecord | None:
-        row = self._db.connection.execute(
-            "SELECT * FROM videos WHERE id=? LIMIT 1", (video_id,)
-        ).fetchone()
+        with self._db.reading() as conn:
+            row = conn.execute(
+                "SELECT * FROM videos WHERE id=? LIMIT 1", (video_id,)
+            ).fetchone()
         return _row_to_video(row) if row else None
 
     def list_videos(self, session_id: str | None = None) -> list[VideoRecord]:
-        if session_id:
-            rows = self._db.connection.execute(
-                "SELECT * FROM videos WHERE session_id=? ORDER BY created_at DESC",
-                (session_id,),
-            ).fetchall()
-        else:
-            rows = self._db.connection.execute(
-                "SELECT * FROM videos ORDER BY created_at DESC"
-            ).fetchall()
+        with self._db.reading() as conn:
+            if session_id:
+                rows = conn.execute(
+                    "SELECT * FROM videos WHERE session_id=? ORDER BY created_at DESC",
+                    (session_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM videos ORDER BY created_at DESC"
+                ).fetchall()
         return [_row_to_video(r) for r in rows]
 
     def delete_video(self, video_id: str) -> VideoRecord | None:
@@ -265,16 +279,18 @@ class FootfallRepository:
     # ------------------------------------------------------------------
 
     def get_event(self, event_id: str) -> FootfallEvent | None:
-        row = self._db.connection.execute(
-            "SELECT * FROM footfall WHERE id=? LIMIT 1", (event_id,)
-        ).fetchone()
+        with self._db.reading() as conn:
+            row = conn.execute(
+                "SELECT * FROM footfall WHERE id=? LIMIT 1", (event_id,)
+            ).fetchone()
         return _row_to_footfall(row) if row else None
 
     def list_events(self, limit: int = 200) -> list[FootfallEvent]:
         """Return the *limit* most recent footfall events (newest first)."""
-        rows = self._db.connection.execute(
-            "SELECT * FROM footfall ORDER BY login_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        with self._db.reading() as conn:
+            rows = conn.execute(
+                "SELECT * FROM footfall ORDER BY login_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [_row_to_footfall(r) for r in rows]
 
     # ------------------------------------------------------------------
@@ -286,50 +302,52 @@ class FootfallRepository:
 
         Includes video_count, total_duration_seconds, and purge status.
         """
-        rows = self._db.connection.execute(
-            """
-            SELECT
-                f.session_id,
-                f.session_name,
-                f.session_created,
-                COUNT(f.id)                             AS login_count,
-                MIN(f.login_at)                         AS first_login_at,
-                MAX(f.logout_at)                        AS last_logout_at,
-                -- reason of the latest closed arc
-                (SELECT logout_reason
-                   FROM footfall f2
-                  WHERE f2.session_id = f.session_id
-                    AND f2.logout_at IS NOT NULL
-                  ORDER BY f2.logout_at DESC
-                  LIMIT 1)                              AS last_logout_reason,
-                COALESCE(v.vc, 0)                       AS video_count,
-                COALESCE(v.dur, 0.0)                    AS total_duration_seconds,
-                s.purged_at                             AS purged_at
-            FROM footfall f
-            -- Pre-aggregate videos per session BEFORE joining: a direct
-            -- LEFT JOIN videos fans every footfall row out by the video
-            -- count, which inflates COUNT(f.id) (login_count) and
-            -- SUM(duration). Aggregating first keeps footfall 1:1.
-            LEFT JOIN (
-                SELECT session_id,
-                       COUNT(*)                       AS vc,
-                       COALESCE(SUM(duration_seconds), 0.0) AS dur
-                FROM videos
-                GROUP BY session_id
-            ) v ON v.session_id = f.session_id
-            LEFT JOIN sessions s ON s.id = f.session_id
-            GROUP BY f.session_id
-            ORDER BY MAX(f.login_at) DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        with self._db.reading() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    f.session_id,
+                    f.session_name,
+                    f.session_created,
+                    COUNT(f.id)                             AS login_count,
+                    MIN(f.login_at)                         AS first_login_at,
+                    MAX(f.logout_at)                        AS last_logout_at,
+                    -- reason of the latest closed arc
+                    (SELECT logout_reason
+                       FROM footfall f2
+                      WHERE f2.session_id = f.session_id
+                        AND f2.logout_at IS NOT NULL
+                      ORDER BY f2.logout_at DESC
+                      LIMIT 1)                              AS last_logout_reason,
+                    COALESCE(v.vc, 0)                       AS video_count,
+                    COALESCE(v.dur, 0.0)                    AS total_duration_seconds,
+                    s.purged_at                             AS purged_at
+                FROM footfall f
+                -- Pre-aggregate videos per session BEFORE joining: a direct
+                -- LEFT JOIN videos fans every footfall row out by the video
+                -- count, which inflates COUNT(f.id) (login_count) and
+                -- SUM(duration). Aggregating first keeps footfall 1:1.
+                LEFT JOIN (
+                    SELECT session_id,
+                           COUNT(*)                       AS vc,
+                           COALESCE(SUM(duration_seconds), 0.0) AS dur
+                    FROM videos
+                    GROUP BY session_id
+                ) v ON v.session_id = f.session_id
+                LEFT JOIN sessions s ON s.id = f.session_id
+                GROUP BY f.session_id
+                ORDER BY MAX(f.login_at) DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
         return [_row_to_summary(r) for r in rows]
 
     def count_events(self) -> int:
-        row = self._db.connection.execute(
-            "SELECT COUNT(*) AS n FROM footfall"
-        ).fetchone()
+        with self._db.reading() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM footfall"
+            ).fetchone()
         return int(row["n"]) if row else 0
 
     # ------------------------------------------------------------------
@@ -341,7 +359,7 @@ class FootfallRepository:
 
         Returns the path that was written.
         """
-        events = self.list_events(limit=0)  # unlimited
+        events = self.list_events(limit=-1)  # -1 = unlimited (LIMIT 0 returns nothing)
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", newline="", encoding="utf-8") as fh:

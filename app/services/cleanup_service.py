@@ -148,10 +148,10 @@ class CleanupService:
         """
         now = datetime.now(timezone.utc).isoformat()
 
-        # 1. Collect video records before deleting from DB (locked: shares the
-        #    connection with bg writers — see fix #10).
-        with self._db.reading():
-            videos = self._video_repo.list_videos(session_id=session_id)
+        # 1. Collect video records before deleting from DB.  list_videos now
+        #    self-locks via reading(), so we must NOT wrap it again here (the
+        #    lock is non-reentrant → that would deadlock).
+        videos = self._video_repo.list_videos(session_id=session_id)
 
         # 2. Delete video files and thumbnails from disk.
         for video in videos:
