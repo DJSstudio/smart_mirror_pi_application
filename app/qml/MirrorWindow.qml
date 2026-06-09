@@ -609,12 +609,22 @@ ApplicationWindow {
                 : VideoOutput.PreserveAspectFit
         }
 
-        // Label
+        // Label ("Look A" / "Look B")
         Rectangle {
+            id: paneLabelPill
             visible: pane.labelText.length > 0
             anchors { left: parent.left; bottom: parent.bottom; margins: 18 }
             radius: 999; color: "#bb0a0906"
             width: paneLbl.implicitWidth + 16; height: 28
+            // Rotate to match the mirror's physical orientation so the label
+            // reads horizontally on a portrait-mounted mirror instead of
+            // appearing vertically written.  Identity at 0° (landscape).
+            // Same idiom as recOverlayWrapper / the countdown overlay.
+            transform: Rotation {
+                angle: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                origin.x: paneLabelPill.width / 2
+                origin.y: paneLabelPill.height / 2
+            }
 
             Text {
                 id: paneLbl
