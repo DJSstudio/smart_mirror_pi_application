@@ -44,9 +44,11 @@ class TestSessionTokens:
     def server(self) -> ShareServer:
         return ShareServer()
 
-    def test_create_and_validate_anonymous_token(self, server: ShareServer) -> None:
+    def test_anonymous_token_denied(self, server: ShareServer) -> None:
+        # Policy: anonymous (skip-login) sessions are NOT shareable to phones,
+        # so an anonymous session token authorizes no device.
         token = server.create_session_token(required_device_id="")
-        assert server._check_session_token(token, device_id="any-device") is True
+        assert server._check_session_token(token, device_id="any-device") is False
 
     def test_create_and_validate_device_gated_token(self, server: ShareServer) -> None:
         token = server.create_session_token(required_device_id="dev-abc")
@@ -108,11 +110,11 @@ class TestExportTokens:
     def test_unknown_token_remaining_returns_zero(self, server: ShareServer) -> None:
         assert server.token_remaining("ghost") == 0
 
-    def test_verify_export_token_any_device(self, server: ShareServer) -> None:
+    def test_anonymous_export_token_denied(self, server: ShareServer) -> None:
+        # Policy: anonymous-session export tokens authorize no device.
         token = server.create_token("vid-1", required_device_id="")
         ok, video_id = server.verify_export_token(token, device_id="any-device")
-        assert ok is True
-        assert video_id == "vid-1"
+        assert ok is False
 
     def test_verify_export_token_wrong_device_rejected(self, server: ShareServer) -> None:
         token = server.create_token("vid-1", required_device_id="dev-owner")
@@ -256,11 +258,13 @@ class TestDownloadAuthorization:
         assert code == 200
         assert len(body) == os.path.getsize(path)
 
-    def test_anonymous_session_allows_any_device(self, live_server) -> None:
+    def test_anonymous_session_denied(self, live_server) -> None:
+        # Policy: an anonymous (skip-login) session is not shareable — its
+        # token must not authorize a download from any device.
         srv, _ = live_server
         tok = srv.create_session_token(required_device_id="")
         code = self._get(srv, f"/download/vid-1?token={tok}&device_id=whatever")[0]
-        assert code == 200
+        assert code == 403
 
     def test_download_token_only_no_identity_forbidden(self, live_server) -> None:
         # Valid session token but no cookie and no device_id param → device

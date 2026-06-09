@@ -344,10 +344,13 @@ class ShareServer:
             with self._lock:
                 self._tokens.pop(token, None)
             return False, None
-        if required_did and device_id != required_did:
+        # An empty required_did means an anonymous (skip-login) session. Policy:
+        # anonymous sessions are NOT shareable to phones — deny. Otherwise the
+        # requesting device must match the session owner.
+        if not required_did or device_id != required_did:
             LOGGER.warning(
-                "Export auth failure: required device %s, got %s",
-                required_did[:8],
+                "Export auth failure: required=%s, got=%s",
+                required_did[:8] if required_did else "(anonymous — sharing disabled)",
                 device_id[:8] if device_id else "(none)",
             )
             return False, None
@@ -408,10 +411,12 @@ class ShareServer:
             with self._lock:
                 self._session_tokens.pop(token, None)
             return False
-        if required_did and device_id != required_did:
+        # Empty required_did = anonymous (skip-login) session → not shareable
+        # to phones (policy). Otherwise the device must match the owner.
+        if not required_did or device_id != required_did:
             LOGGER.warning(
-                "Session gallery auth failure: required device %s, got %s",
-                required_did[:8],
+                "Session gallery auth failure: required=%s, got=%s",
+                required_did[:8] if required_did else "(anonymous — sharing disabled)",
                 device_id[:8] if device_id else "(none)",
             )
             return False

@@ -110,15 +110,32 @@ class ExportController(QObject):
     # Slots (callable from QML)
     # ------------------------------------------------------------------
 
+    def _require_logged_in_session(self):
+        """Return the active session only if it's a real (device-bound) login.
+
+        Anonymous skip-login sessions are NOT shareable to phones (policy):
+        without a device binding, any phone on the LAN could open the link.
+        Returns None and surfaces a guiding message otherwise.
+        """
+        session = self._session.get_active_session()
+        if session is None or not session.device_id:
+            self._error = "Scan the login QR with your phone first to enable sharing."
+            self._app.showError(self._error)
+            self.changed.emit()
+            return None
+        return session
+
     @Slot()
     def showSessionQr(self) -> None:
         """Show the session-hub QR on the mirror (gallery page, device-gated)."""
         self._stop_countdown()
         self._error = ""
+        session = self._require_logged_in_session()
+        if session is None:
+            return
         try:
             self._refresh_server_data()
-            session = self._session.get_active_session()
-            owner_device_id = session.device_id if session else ""
+            owner_device_id = session.device_id
             token = self._server.create_session_token(owner_device_id)
             url = f"{self._server_url}/session/{token}"
             qr_path = self._gen_qr(url, "session_qr.png")
@@ -138,13 +155,15 @@ class ExportController(QObject):
         """Generate a 10-minute download QR for a specific video."""
         self._stop_countdown()
         self._error = ""
+        session = self._require_logged_in_session()
+        if session is None:
+            return
         try:
             self._refresh_server_data()
             video = self._gallery.get_video(video_id)
             if video is None:
                 raise RuntimeError("Video not found.")
-            session = self._session.get_active_session()
-            owner_device_id = session.device_id if session else ""
+            owner_device_id = session.device_id
             self._token = self._server.create_token(video_id, owner_device_id)
             url = f"{self._server_url}/export/{self._token}"
             qr_path = self._gen_qr(url, "export_qr.png")
