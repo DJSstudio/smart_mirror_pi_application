@@ -20,10 +20,12 @@ class SessionController(QObject):
         *,
         session_service: SessionService,
         gallery_service,
+        share_server=None,   # ShareServer — clear phone access on session change
     ) -> None:
         super().__init__()
         self._sessions = session_service
         self._gallery = gallery_service
+        self._server = share_server
         self._active: dict | None = None
         self._session_count = 0
         self._video_count = 0
@@ -63,12 +65,20 @@ class SessionController(QObject):
     @Slot()
     def newSession(self) -> None:
         self._sessions.new_session()
+        # Revoke the previous session's phone access (gallery snapshot + tokens).
+        # The logout/End path does this; the "New session" path must too, or the
+        # departing customer's phone keeps reaching videos for the token TTL —
+        # and a stale token could even stream the NEXT session's snapshot.
+        if self._server is not None:
+            self._server.clear_session_data()
         self.refresh()
         LOGGER.info("New session started")
 
     @Slot()
     def endSession(self) -> None:
         self._sessions.end_active_session()
+        if self._server is not None:
+            self._server.clear_session_data()
         self.refresh()
         LOGGER.info("Session ended")
 

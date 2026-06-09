@@ -129,11 +129,25 @@ def main() -> int:
     )
     # Auto-cleanup: delete video data for sessions idle > threshold.
     # Runs once at startup (before Qt) then every 30 min via QTimer below.
-    _cleanup_hours = float(settings.get("session_cleanup_hours", 1))
+    # Coerce/clamp defensively: a corrupt or wrong-typed value in settings.json
+    # must not crash startup (which would crash-loop into a dark mirror).
+    try:
+        _cleanup_hours = float(settings.get("session_cleanup_hours", 1))
+        if not (0 < _cleanup_hours <= 168):
+            raise ValueError
+    except (TypeError, ValueError):
+        LOGGER.warning("session_cleanup_hours invalid; using default 1")
+        _cleanup_hours = 1.0
     cleanup_service = CleanupService(db=db, video_repo=video_repo, temp_dir=paths.temp_dir)
     cleanup_service.run(older_than_hours=_cleanup_hours)
 
-    _share_port = int(settings.get("share_server_port", 8765))
+    try:
+        _share_port = int(settings.get("share_server_port", 8765))
+        if not (1 <= _share_port <= 65535):
+            raise ValueError
+    except (TypeError, ValueError):
+        LOGGER.warning("share_server_port invalid; using default 8765")
+        _share_port = 8765
     _share_tls = bool(settings.get("share_server_tls", False))
     share_server = ShareServer(
         port=_share_port,
@@ -183,6 +197,7 @@ def main() -> int:
     session_ctrl = SessionController(
         session_service=session_service,
         gallery_service=gallery_service,
+        share_server=share_server,
     )
     gallery_ctrl = GalleryController(
         gallery_service=gallery_service,
@@ -272,7 +287,19 @@ def main() -> int:
         if page == "recording" and (recording_ctrl.isRecording or recording_ctrl.countdown > 0):
             idle_service.stop()
             return
+        # Don't auto-logout mid Live Compare recording: idle-logout doesn't run
+        # close_active(), so it would otherwise lose the clip and leave the
+        # camera recording behind the QR screen. While the customer is actively
+        # interacting, the event filter resets idle anyway; if they walk away,
+        # the recording continues (same as normal recording) until stopped.
+        if page == "live_compare" and playback_service.liveCompareRecording:
+            idle_service.stop()
+            return
         idle_service.start()
+
+    # Re-evaluate idle whenever Live Compare recording starts/stops, not just on
+    # page change (liveCompareRecording flips without navigating).
+    playback_service.changed.connect(_update_idle_state)
 
     app_ctrl.currentPageChanged.connect(_update_idle_state)
     recording_ctrl.changed.connect(_update_idle_state)
