@@ -2,6 +2,10 @@
 Description=Smart Mirror Pi
 After=graphical-session.target
 Wants=graphical-session.target
+# Crash-loop guard belongs in [Unit] — systemd ignores StartLimit* under
+# [Service], so as written before, the limit was NOT enforced.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -18,11 +22,9 @@ ExecStart=/home/pi/smart_mirror_pi/scripts/run.sh
 
 # ── Restart policy ────────────────────────────────────────────────────────────
 # Restart on any non-zero exit, but give up after 5 attempts in 5 minutes
-# to avoid a crash-loop burning CPU indefinitely.
+# (StartLimit* set in [Unit] above) to avoid a crash-loop burning CPU.
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 StandardOutput=journal

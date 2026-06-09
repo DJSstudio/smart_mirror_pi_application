@@ -14,7 +14,10 @@ def _to_file_url(value: str | Path | None) -> str:
     if not value:
         return ""
     text = str(value)
-    if "://" in text:
+    # Only pass through values that are ALREADY a URL of a known scheme. The
+    # old "://" check mis-treated a local path that merely contained "://"
+    # (e.g. an oddly-named file) as a URL and returned it unloadable.
+    if text.startswith(("file://", "http://", "https://", "qrc:")):
         return text
     return Path(text).expanduser().resolve().as_uri()
 

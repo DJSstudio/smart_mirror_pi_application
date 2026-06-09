@@ -5,9 +5,22 @@ Falls back gracefully when nmcli is not available (dev machines, etc.).
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+
+
+def _nmcli_fields(line: str) -> list[str]:
+    """Split an nmcli --terse line into fields.
+
+    nmcli uses ':' as the field separator and escapes a literal ':' inside a
+    value as '\\:' (and '\\' as '\\\\').  A naive line.split(':') therefore
+    mangles any SSID containing a colon (signal/security columns shift, the
+    SSID is truncated).  Split on UNescaped ':' then unescape.
+    """
+    parts = re.split(r"(?<!\\):", line)
+    return [p.replace("\\:", ":").replace("\\\\", "\\") for p in parts]
 
 
 @dataclass
@@ -50,8 +63,7 @@ class WifiService:
         )
         networks: dict[str, WifiNetwork] = {}
         for line in result.stdout.splitlines():
-            # nmcli -t separates with ":" and escapes literal ":" in SSIDs as "\:"
-            parts = line.split(":")
+            parts = _nmcli_fields(line)
             if len(parts) < 3:
                 continue
             in_use = parts[0].strip() == "*"
@@ -76,7 +88,7 @@ class WifiService:
             capture_output=True, text=True, timeout=5,
         )
         for line in result.stdout.splitlines():
-            parts = line.split(":")
+            parts = _nmcli_fields(line)
             if parts and parts[0].strip() == "*":
                 return parts[1].strip() if len(parts) > 1 else ""
         return ""
