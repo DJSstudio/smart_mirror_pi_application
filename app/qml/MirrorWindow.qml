@@ -263,27 +263,43 @@ ApplicationWindow {
     Component {
         id: livePreviewComp
         Item {
-            id: _liveFlipWrapper
-            transform: Scale {
-                // At 90°/270° the viewer's left↔right maps to image top↔bottom,
-                // so vflip (yScale) is the perceptual mirror; hflip otherwise.
-                readonly property bool isPortrait:
-                    mirrorDisplay && (mirrorDisplay.orientationDegrees === 90
-                                   || mirrorDisplay.orientationDegrees === 270)
-                xScale: (settingsController.cameraMirrorFlip && !isPortrait) ? -1 : 1
-                yScale: (settingsController.cameraMirrorFlip &&  isPortrait) ? -1 : 1
-                origin.x: _liveFlipWrapper.width  / 2
-                origin.y: _liveFlipWrapper.height / 2
-            }
-            VideoOutput {
-                id: qtLiveOut
-                anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
-                Component.onCompleted: {
-                    if (qtCamera) qtCamera.attachSink(qtLiveOut.videoSink)
-                }
-                Component.onDestruction: {
-                    if (qtCamera) qtCamera.detachSink()
+            // Orientation-aware wrapper: IDENTITY at 0° (landscape unchanged),
+            // rotates the live feed upright on a portrait-mounted mirror.
+            // width/height swap for 90°/270° so the rotated video fills the
+            // screen — same idiom as recOverlayWrapper. Verify 90 vs 270 on Pi.
+            Item {
+                id: _liveFlipWrapper
+                anchors.centerIn: parent
+                property int orient: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                property bool portrait: orient === 90 || orient === 270
+                width:  portrait ? parent.height : parent.width
+                height: portrait ? parent.width  : parent.height
+                // Mirror-flip (camera_mirror_flip, off by default) composes with
+                // rotation: after the rotation a plain horizontal flip is the
+                // viewer's left-right mirror. If flip looks inverted in portrait,
+                // swap the order of the two transforms below.
+                transform: [
+                    Scale {
+                        xScale: (settingsController && settingsController.cameraMirrorFlip) ? -1 : 1
+                        origin.x: _liveFlipWrapper.width  / 2
+                        origin.y: _liveFlipWrapper.height / 2
+                    },
+                    Rotation {
+                        angle: _liveFlipWrapper.orient
+                        origin.x: _liveFlipWrapper.width  / 2
+                        origin.y: _liveFlipWrapper.height / 2
+                    }
+                ]
+                VideoOutput {
+                    id: qtLiveOut
+                    anchors.fill: parent
+                    fillMode: VideoOutput.PreserveAspectFit
+                    Component.onCompleted: {
+                        if (qtCamera) qtCamera.attachSink(qtLiveOut.videoSink)
+                    }
+                    Component.onDestruction: {
+                        if (qtCamera) qtCamera.detachSink()
+                    }
                 }
             }
         }
@@ -309,10 +325,25 @@ ApplicationWindow {
                         playbackService.setMirrorPlaying(playbackState === MediaPlayer.PlayingState)
                 }
             }
-            VideoOutput {
-                id: videoOut
-                anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
+            // Orientation-aware wrapper: identity at 0°, rotates playback
+            // upright on a portrait mirror (width/height swapped for 90°/270°).
+            Item {
+                id: _videoRotWrapper
+                anchors.centerIn: parent
+                property int orient: mirrorDisplay ? mirrorDisplay.orientationDegrees : 0
+                property bool portrait: orient === 90 || orient === 270
+                width:  portrait ? parent.height : parent.width
+                height: portrait ? parent.width  : parent.height
+                transform: Rotation {
+                    angle: _videoRotWrapper.orient
+                    origin.x: _videoRotWrapper.width  / 2
+                    origin.y: _videoRotWrapper.height / 2
+                }
+                VideoOutput {
+                    id: videoOut
+                    anchors.fill: parent
+                    fillMode: VideoOutput.PreserveAspectFit
+                }
             }
             // Listen for control commands from controller-screen UI
             Connections {
