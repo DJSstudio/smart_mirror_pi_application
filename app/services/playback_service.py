@@ -12,7 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from app.config.paths import AppPaths
 from app.models.entities import VideoRecord
@@ -76,6 +76,10 @@ class PlaybackService(QObject):
         # Live Compare recording state
         self._lc_recording = False
         self._lc_recording_path: Path | None = None
+        self._lc_elapsed = 0  # seconds since the Live Compare recording started
+        self._lc_timer = QTimer(self)
+        self._lc_timer.setInterval(1000)
+        self._lc_timer.timeout.connect(self._lc_tick)
         self._lcSaveResult.connect(self._on_lc_save_result)
 
     def attach_qt_camera_session(self, session: QtCameraSession) -> None:
@@ -126,6 +130,11 @@ class PlaybackService(QObject):
     @Property(bool, notify=changed)
     def liveCompareRecording(self) -> bool:
         return self._lc_recording
+
+    @Property(str, notify=changed)
+    def liveCompareElapsedText(self) -> str:
+        m, s = divmod(self._lc_elapsed, 60)
+        return f"{m:02d}:{s:02d}"
 
     # ── Mirror reports state back ─────────────────────────────────
     @Slot(int)
@@ -196,6 +205,8 @@ class PlaybackService(QObject):
             return
         self._lc_recording = True
         self._lc_recording_path = cap_path
+        self._lc_elapsed = 0
+        self._lc_timer.start()
         self.changed.emit()
 
     @Slot()
@@ -214,6 +225,7 @@ class PlaybackService(QObject):
         # Flip UI state now so the button updates immediately.
         self._lc_recording = False
         self._lc_recording_path = None
+        self._lc_timer.stop()
         self.changed.emit()
 
         # end_recording() finalizes the file AND tears down recording state on
@@ -253,6 +265,10 @@ class PlaybackService(QObject):
             self._lcSaveResult.emit(title, error)
 
         threading.Thread(target=_bg, daemon=True).start()
+
+    def _lc_tick(self) -> None:
+        self._lc_elapsed += 1
+        self.changed.emit()
 
     @Slot(str, str)
     def _on_lc_save_result(self, title: str, error: str) -> None:

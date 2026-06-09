@@ -92,9 +92,12 @@ ApplicationWindow {
         // user's perceived top-right regardless of physical mirror orientation.
         Item {
             id: recOverlayWrapper
-            visible: recordingController
-                     && recordingController.isRecording
-                     && recordingController.countdown === 0
+            // Shown during normal recording AND during a Live Compare recording,
+            // so the customer sees the REC indicator + timer on the mirror either way.
+            visible: (recordingController
+                      && recordingController.isRecording
+                      && recordingController.countdown === 0)
+                     || (playbackService && playbackService.liveCompareRecording)
             anchors.centerIn: parent
 
             // Swap dimensions for 90°/270° rotations so the badge lands
@@ -149,7 +152,9 @@ ApplicationWindow {
                     }
 
                     Text {
-                        text: recordingController ? recordingController.elapsedText : "00:00"
+                        text: (playbackService && playbackService.liveCompareRecording)
+                              ? playbackService.liveCompareElapsedText
+                              : (recordingController ? recordingController.elapsedText : "00:00")
                         font.family: "Noto Sans Mono, Consolas, monospace"
                         font.pixelSize: 18
                         font.weight: Font.Medium
