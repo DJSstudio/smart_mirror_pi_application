@@ -335,9 +335,17 @@ ApplicationWindow {
     // pane mirrors primary's seek for sync.
     Component {
         id: compareComp
-        ColumnLayout {
+        GridLayout {
             anchors.fill: parent
-            spacing: 0
+            // Side-by-side (2 cols) in landscape (0°/180°); stacked top/bottom
+            // (1 col) in portrait (90°/270°) — match the physical screen shape.
+            // The 2px spacing over the black canvas acts as the divider.
+            property bool stacked: mirrorDisplay
+                && (mirrorDisplay.orientationDegrees === 90
+                    || mirrorDisplay.orientationDegrees === 270)
+            columns: stacked ? 1 : 2
+            rowSpacing: 2
+            columnSpacing: 2
 
             MirrorPane {
                 Layout.fillWidth: true
@@ -347,8 +355,6 @@ ApplicationWindow {
                 fillCrop: mirrorDisplay.compareFillCrop
                 isPrimary: true
             }
-
-            Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
 
             MirrorPane {
                 Layout.fillWidth: true
@@ -368,9 +374,15 @@ ApplicationWindow {
     // — the QtCameraSession pushes frames into the VideoOutput's videoSink.
     Component {
         id: liveCompareComp
-        ColumnLayout {
+        GridLayout {
             anchors.fill: parent
-            spacing: 0
+            // Side-by-side in landscape (0°/180°), stacked in portrait (90°/270°).
+            property bool stacked: mirrorDisplay
+                && (mirrorDisplay.orientationDegrees === 90
+                    || mirrorDisplay.orientationDegrees === 270)
+            columns: stacked ? 1 : 2
+            rowSpacing: 2
+            columnSpacing: 2
 
             MirrorPane {
                 Layout.fillWidth: true
@@ -381,8 +393,6 @@ ApplicationWindow {
                 looping: true
                 isPrimary: true   // saved video is controllable via playbackService
             }
-
-            Rectangle { height: 2; Layout.fillWidth: true; color: "#111111" }
 
             // Live camera pane — Qt-direct, same approach as livePreviewComp
             Item {
