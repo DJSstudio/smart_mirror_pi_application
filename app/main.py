@@ -138,6 +138,16 @@ def main() -> int:
     except (TypeError, ValueError):
         LOGGER.warning("session_cleanup_hours invalid; using default 1")
         _cleanup_hours = 1.0
+    # End any session left active=1 by the previous run (power-cycle or crash
+    # mid-session) BEFORE cleanup. Cleanup only reclaims active=0 sessions, and
+    # at boot nothing is genuinely in use yet — without this, a stale active
+    # session is never purged (its old videos reappear when the device rescans
+    # and resumes it). We deliberately do NOT record a footfall logout here: a
+    # logout_at=now would reset last_activity and make the session look fresh,
+    # defeating the age-based purge. A recent leftover stays resumable because
+    # cleanup keeps anything within the retention window.
+    session_service.end_active_session()
+
     cleanup_service = CleanupService(db=db, video_repo=video_repo, temp_dir=paths.temp_dir)
     cleanup_service.run(older_than_hours=_cleanup_hours)
 
