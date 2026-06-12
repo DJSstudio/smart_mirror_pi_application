@@ -62,10 +62,21 @@ class ScreenManager:
                     mirror_screen.geometry().width(), mirror_screen.geometry().height(),
                 )
             else:
-                control_idx = int(self._settings.get("control_screen_index", 0))
-                mirror_idx = int(self._settings.get("mirror_screen_index", 1))
-                control_screen = screens[min(control_idx, len(screens) - 1)]
-                mirror_screen = screens[min(mirror_idx, len(screens) - 1)]
+                def _screen_idx(key: str, default: int) -> int:
+                    # Coerce defensively: a non-numeric setting would raise and
+                    # crash boot (dark mirror); a negative index would silently
+                    # pick a screen from the end; an over-range one would IndexError.
+                    try:
+                        idx = int(self._settings.get(key, default))
+                    except (TypeError, ValueError):
+                        LOGGER.warning("%s invalid; using %d", key, default)
+                        idx = default
+                    return max(0, min(idx, len(screens) - 1))
+
+                control_idx = _screen_idx("control_screen_index", 0)
+                mirror_idx = _screen_idx("mirror_screen_index", 1)
+                control_screen = screens[control_idx]
+                mirror_screen = screens[mirror_idx]
                 LOGGER.info(
                     "Screen assignment (manual) — control: %s  mirror: %s",
                     control_screen.name(), mirror_screen.name(),

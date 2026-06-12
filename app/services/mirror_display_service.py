@@ -15,9 +15,35 @@ Mirror states
 """
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from app.services.settings_service import SettingsService
+
+LOGGER = logging.getLogger(__name__)
+
+_VALID_ORIENTATIONS = (0, 90, 180, 270)
+
+
+def _valid_orientation(value: object) -> int:
+    """Coerce a settings value to one of the four legal mirror orientations.
+
+    Guards two failure modes: a non-numeric value would raise at boot (dark
+    mirror), and an arbitrary angle (e.g. 45) would feed a skewed Rotation
+    transform into QML.  Anything invalid falls back to 0 (upright)."""
+    try:
+        degrees = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        LOGGER.warning("mirror_orientation_degrees %r invalid; using 0", value)
+        return 0
+    if degrees not in _VALID_ORIENTATIONS:
+        LOGGER.warning(
+            "mirror_orientation_degrees %d not in %s; using 0",
+            degrees, _VALID_ORIENTATIONS,
+        )
+        return 0
+    return degrees
 
 
 class MirrorDisplayService(QObject):
@@ -31,7 +57,9 @@ class MirrorDisplayService(QObject):
         self._secondary_source = ""
         self._primary_label = ""
         self._secondary_label = ""
-        self._orientation_degrees = int(settings.get("mirror_orientation_degrees", 0))
+        self._orientation_degrees = _valid_orientation(
+            settings.get("mirror_orientation_degrees", 0)
+        )
         self._compare_fill_crop = bool(settings.get("compare_fill_crop", True))
 
     # ------------------------------------------------------------------
@@ -110,6 +138,7 @@ class MirrorDisplayService(QObject):
 
     @Slot(int)
     def set_orientation(self, degrees: int) -> None:
+        degrees = _valid_orientation(degrees)
         self._orientation_degrees = degrees
         self._settings.set("mirror_orientation_degrees", degrees)
         self.changed.emit()

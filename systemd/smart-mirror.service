@@ -2,10 +2,11 @@
 Description=Smart Mirror Pi
 After=graphical-session.target
 Wants=graphical-session.target
-# Crash-loop guard belongs in [Unit] — systemd ignores StartLimit* under
-# [Service], so as written before, the limit was NOT enforced.
-StartLimitIntervalSec=300
-StartLimitBurst=5
+# Never permanently give up: this is an unattended retail kiosk, so a dark
+# mirror that needs someone on-site to clear a failed unit is worse than a
+# bounded retry loop.  StartLimitIntervalSec=0 disables the crash-loop give-up;
+# RestartSec below bounds the retry rate so a genuine crash-loop can't burn CPU.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -21,9 +22,11 @@ WorkingDirectory=/home/pi/smart_mirror_pi
 ExecStart=/home/pi/smart_mirror_pi/scripts/run.sh
 
 # ── Restart policy ────────────────────────────────────────────────────────────
-# Restart on any non-zero exit, but give up after 5 attempts in 5 minutes
-# (StartLimit* set in [Unit] above) to avoid a crash-loop burning CPU.
-Restart=on-failure
+# Restart=always (not on-failure): a clean exit — e.g. Ctrl+Q, a quit from the
+# UI, or exit(0) on an unhandled-but-caught path — must NOT leave the mirror
+# dark on an unattended kiosk; bring it back up regardless of exit code.
+# RestartSec spaces out retries so a crash-loop is bounded (~1 start / 5s).
+Restart=always
 RestartSec=5
 
 # ── Logging ───────────────────────────────────────────────────────────────────
