@@ -33,7 +33,7 @@ def _valid_orientation(value: object) -> int:
     mirror), and an arbitrary angle (e.g. 45) would feed a skewed Rotation
     transform into QML.  Anything invalid falls back to 0 (upright)."""
     try:
-        degrees = int(value)  # type: ignore[arg-type]
+        degrees = int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         LOGGER.warning("mirror_orientation_degrees %r invalid; using 0", value)
         return 0
