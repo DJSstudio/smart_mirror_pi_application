@@ -629,6 +629,18 @@ class QtCameraSession(QObject):
     def is_alive(self) -> bool:
         if not self._active or self._camera is None:
             return False
+        # While recording, the QCamera can stay "active" even though the ffmpeg
+        # writer process has died (disk full / OOM / killed).  isActive() alone
+        # wouldn't notice, so the failure would only surface at Stop as a
+        # truncated or empty clip.  Treat a dead writer as not-alive so the
+        # recording controller's liveness poll aborts promptly and tells the
+        # customer, rather than silently losing their recording.
+        # (is_alive runs on the GUI thread, as does end_recording, so reading
+        # self._ffmpeg here can't race the writer being torn down; snapshot the
+        # reference anyway to avoid a None-deref if it flips between lines.)
+        ffm = self._ffmpeg
+        if ffm is not None and ffm.poll() is not None:
+            return False
         return self._camera.isActive()
 
     # ------------------------------------------------------------------
