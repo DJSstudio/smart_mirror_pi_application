@@ -61,6 +61,14 @@ class CameraService:
         recording flow.  Mirror's liveCompareComp uses VideoOutput +
         attachSink for the live pane (no URL needed).
         """
+        # Disk guard on the DEFAULT recording path: normal recording uses the
+        # deferred flow (start_preview_only warmup → begin_writing_file), and
+        # Live Compare can hit "Record Live".  Both ultimately write to disk, so
+        # gate here — start_recording() (the legacy/fallback path) checks too.
+        # Both callers surface a raised RuntimeError cleanly (recording_controller
+        # falls back to start_recording which re-checks; gallery_controller's
+        # liveCompareSelected wraps this in try/except → showError).
+        self._check_disk_space()
         self._stop_any(discard=True)
         adapter = self._pick()
         self._active = adapter
