@@ -68,8 +68,14 @@ class SessionRepository:
                 "UPDATE sessions SET active=0, ended_at=? WHERE active=1 AND id!=?",
                 (now, session_id),
             )
+            # Clear purged_at: if this session was previously purged and is now
+            # being resumed, any clips recorded after the resume must be subject
+            # to retention again.  Cleanup only selects rows WHERE purged_at IS
+            # NULL, so leaving it set would make the new footage immune to the
+            # retention purge forever (a data-retention bypass).
             conn.execute(
-                "UPDATE sessions SET active=1, ended_at=NULL, device_id=? WHERE id=?",
+                "UPDATE sessions SET active=1, ended_at=NULL, purged_at=NULL, "
+                "device_id=? WHERE id=?",
                 (device_id, session_id),
             )
             conn.commit()
