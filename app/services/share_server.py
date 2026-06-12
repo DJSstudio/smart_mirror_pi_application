@@ -5,11 +5,11 @@ links.  Runs in a daemon thread so it never blocks the Qt event loop.
 
 Routes
 ──────
-  GET  /download/<id>?token=&device_id=        → Stream a session video (device-gated)
+  GET  /download/<id>?token=        → Stream a session video (device-gated via cookie)
   GET  /session/<token>            → Device-verification page then gallery (session owner only)
-  GET  /api/session/videos         → Verify device; return gallery JSON
+  GET  /api/session/videos         → Verify device (cookie); return gallery JSON
   GET  /export/<token>             → Device-verification page (must match session owner)
-  GET  /api/export/verify          → Verify device_id; issue one-time dl_token
+  GET  /api/export/verify          → Verify device (cookie); issue one-time dl_token
   GET  /export/dl/<dl_token>       → One-time 60-second stream (post-verification)
   GET  /qr/activate?token=<raw>    → QR login page (shows Resume/Fresh choice if known device)
   GET  /api/qr/confirm             → Phone confirms scan; returns needs_choice flag
@@ -645,31 +645,21 @@ class ShareServer:
                         self._download(
                             path[len("/download/"):],
                             qs.get("token", [""])[0],
-                            qs.get("device_id", [""])[0],
                         )
                     elif path.startswith("/export/dl/"):
                         self._export_dl(path[len("/export/dl/"):])
                     elif path.startswith("/export/"):
                         self._export_page(path[len("/export/"):])
                     elif path == "/api/session/videos":
-                        self._session_videos(
-                            qs.get("token", [""])[0],
-                            qs.get("device_id", [""])[0],
-                        )
+                        self._session_videos(qs.get("token", [""])[0])
                     elif path.startswith("/session/"):
                         self._session_page(path[len("/session/"):])
                     elif path == "/api/export/verify":
-                        self._export_verify(
-                            qs.get("token", [""])[0],
-                            qs.get("device_id", [""])[0],
-                        )
+                        self._export_verify(qs.get("token", [""])[0])
                     elif path == "/qr/activate":
                         self._qr_activate_page(qs.get("token", [""])[0])
                     elif path == "/api/qr/confirm":
-                        self._qr_confirm(
-                            qs.get("token", [""])[0],
-                            qs.get("device_id", [""])[0],
-                        )
+                        self._qr_confirm(qs.get("token", [""])[0])
                     elif path == "/api/qr/choice":
                         self._qr_choice(
                             qs.get("token", [""])[0],
@@ -683,12 +673,12 @@ class ShareServer:
 
             # ── Gallery downloads (device-gated) ─────────────────────────
 
-            def _download(self, video_id: str, token: str, qs_device_id: str):
+            def _download(self, video_id: str, token: str):
                 """Stream a session video — requires a valid session token whose
                 device (from the HttpOnly cookie) matches.  Same gate as
                 /api/session/videos, so files cannot be pulled by an
                 unauthenticated device on the LAN."""
-                device_id = self._device_id(qs_device_id)
+                device_id = self._device_id()
                 if not server._check_session_token(token, device_id):
                     self._err(
                         403,
@@ -715,12 +705,12 @@ class ShareServer:
                 html = _EXPORT_HTML.replace("__TOKEN__", json.dumps(token))
                 self._html(html)
 
-            def _export_verify(self, token: str, qs_device_id: str):
+            def _export_verify(self, token: str):
                 """Verify device (via cookie); on success issue a one-time dl_token."""
                 if not token:
                     self._json({"ok": False, "error": "Missing token"})
                     return
-                device_id = self._device_id(qs_device_id)
+                device_id = self._device_id()
                 ok, video_id = server.verify_export_token(token, device_id)
                 if not ok:
                     self._json({
@@ -753,12 +743,12 @@ class ShareServer:
                 html = _SESSION_HTML.replace("__TOKEN__", json.dumps(token))
                 self._html(html)
 
-            def _session_videos(self, token: str, qs_device_id: str):
+            def _session_videos(self, token: str):
                 """Verify device (via cookie), return session gallery JSON."""
                 if not token:
                     self._json({"ok": False, "error": "Missing token"})
                     return
-                device_id = self._device_id(qs_device_id)
+                device_id = self._device_id()
                 if not server._check_session_token(token, device_id):
                     self._json({
                         "ok": False,
@@ -798,7 +788,7 @@ class ShareServer:
                 html = _LOGIN_HTML.replace("__TOKEN__", json.dumps(token))
                 self._html(html)
 
-            def _qr_confirm(self, token: str, qs_device_id: str):
+            def _qr_confirm(self, token: str):
                 """Phone browser confirms scan; returns needs_choice flag.
 
                 Device identity is a server-minted HttpOnly cookie (mirror_did).
@@ -807,7 +797,7 @@ class ShareServer:
                 if not token:
                     self._json({"ok": False, "error": "Missing token"})
                     return
-                device_id = self._device_id(qs_device_id)
+                device_id = self._device_id()
                 set_cookie = None
                 if not device_id:
                     device_id = secrets.token_urlsafe(16)
@@ -846,10 +836,17 @@ class ShareServer:
 
             # ── Helpers ──────────────────────────────────────────────────
 
-            def _device_id(self, qs_fallback: str = "") -> str:
-                """Device identity from the server-minted HttpOnly cookie.
-                Falls back to a ?device_id= query param only for clients that
-                don't have the cookie yet (the app no longer sends it in URLs)."""
+            def _device_id(self) -> str:
+                """Device identity from the server-minted HttpOnly cookie ONLY.
+
+                The client never asserts its own id in a URL.  A ?device_id=
+                query fallback used to exist; it let a LAN attacker who sniffed
+                the (HttpOnly, but cleartext-on-the-wire) mirror_did cookie OR
+                photographed the session-QR token append ?device_id=<owner> and
+                pull another customer's videos.  Identity now comes solely from
+                the mirror_did cookie the server minted at QR-confirm time, so a
+                request with no cookie resolves to "" and the device gate denies
+                it (download / gallery / export all require a matching id)."""
                 raw = self.headers.get("Cookie", "")
                 if raw:
                     try:
@@ -858,7 +855,7 @@ class ShareServer:
                             return morsel.value
                     except Exception:  # noqa: BLE001
                         pass
-                return qs_fallback
+                return ""
 
             def _stream(self, path: Path, title: str):
                 if not path.exists():

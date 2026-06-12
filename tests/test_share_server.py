@@ -206,11 +206,19 @@ class TestDownloadAuthorization:
         srv.stop()
 
     @staticmethod
-    def _get(srv: ShareServer, path: str):
+    def _get(srv: ShareServer, path: str, cookie: str | None = None):
+        """GET a path; pass *cookie* to set the mirror_did device cookie.
+
+        Device identity is now cookie-only (no ?device_id= URL fallback), so
+        the owner path supplies its id via this cookie, exactly like a phone."""
         import urllib.error
         import urllib.request
+        headers = {"Cookie": f"mirror_did={cookie}"} if cookie is not None else {}
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{srv.port}{path}", headers=headers
+        )
         try:
-            r = urllib.request.urlopen(f"http://127.0.0.1:{srv.port}{path}", timeout=5)
+            r = urllib.request.urlopen(req, timeout=5)
             return r.status, r.read()
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read()
@@ -247,23 +255,33 @@ class TestDownloadAuthorization:
     def test_download_wrong_device_forbidden(self, live_server) -> None:
         srv, _ = live_server
         tok = srv.create_session_token(required_device_id="owner")
-        code = self._get(srv, f"/download/vid-1?token={tok}&device_id=attacker")[0]
+        code = self._get(srv, f"/download/vid-1?token={tok}", cookie="attacker")[0]
         assert code == 403
+
+    def test_download_device_id_query_param_is_ignored(self, live_server) -> None:
+        # H1 fix: identity is the HttpOnly cookie ONLY.  A LAN attacker who
+        # photographed the session-QR token but lacks the owner's cookie must
+        # NOT be able to assert the owner's id via ?device_id= and exfiltrate.
+        srv, _ = live_server
+        tok = srv.create_session_token(required_device_id="owner")
+        # No cookie sent — the (legacy) query param must be inert.
+        assert self._get(srv, f"/download/vid-1?token={tok}&device_id=owner")[0] == 403
 
     def test_download_valid_owner_streams_file(self, live_server) -> None:
         import os
         srv, path = live_server
         tok = srv.create_session_token(required_device_id="owner")
-        code, body = self._get(srv, f"/download/vid-1?token={tok}&device_id=owner")
+        code, body = self._get(srv, f"/download/vid-1?token={tok}", cookie="owner")
         assert code == 200
         assert len(body) == os.path.getsize(path)
 
     def test_anonymous_session_denied(self, live_server) -> None:
         # Policy: an anonymous (skip-login) session is not shareable — its
-        # token must not authorize a download from any device.
+        # token must not authorize a download from any device, even one
+        # presenting a real device cookie.
         srv, _ = live_server
         tok = srv.create_session_token(required_device_id="")
-        code = self._get(srv, f"/download/vid-1?token={tok}&device_id=whatever")[0]
+        code = self._get(srv, f"/download/vid-1?token={tok}", cookie="whatever")[0]
         assert code == 403
 
     def test_download_token_only_no_identity_forbidden(self, live_server) -> None:
@@ -302,6 +320,6 @@ class TestDownloadAuthorization:
         # H3: logout clears the snapshot + invalidates the session token.
         srv, _ = live_server
         tok = srv.create_session_token(required_device_id="owner")
-        assert self._get(srv, f"/download/vid-1?token={tok}&device_id=owner")[0] == 200
+        assert self._get(srv, f"/download/vid-1?token={tok}", cookie="owner")[0] == 200
         srv.clear_session_data()
-        assert self._get(srv, f"/download/vid-1?token={tok}&device_id=owner")[0] == 403
+        assert self._get(srv, f"/download/vid-1?token={tok}", cookie="owner")[0] == 403
