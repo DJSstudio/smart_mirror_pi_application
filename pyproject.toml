@@ -53,6 +53,20 @@ ignore_missing_imports = true   # PySide6 stubs not always available
 warn_unused_ignores = true
 warn_return_any = false         # Qt slots return Any by design
 
+# Treat Qt as untyped *consistently* — whether or not PySide6 is installed in
+# the checking environment. PySide6's bundled hints are stricter than the
+# dynamic Qt idioms this app relies on (string-typed Property() for QML list
+# exposure, setCamera(None) to detach a capture session, and Property
+# descriptors that return their value type at runtime), producing false
+# positives that aren't real bugs. ignore_missing_imports already does this when
+# PySide6 is absent; follow_imports=skip extends the same Qt-as-Any treatment to
+# environments where it IS installed, so mypy stays green either way. No runtime
+# effect — this only affects type checking.
+[[tool.mypy.overrides]]
+module = "PySide6.*"
+follow_imports = "skip"
+follow_imports_for_stubs = true
+
 # ── Pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
