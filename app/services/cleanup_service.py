@@ -49,9 +49,16 @@ class CleanupService:
         - It has not already been purged (purged_at IS NULL)
         - Its last activity timestamp is older than the threshold.
 
-        Last activity = MAX(footfall.logout_at) if any logout exists,
-                        else MAX(footfall.login_at) if any login exists,
-                        else sessions.started_at.
+        Last activity = the most recent of: the session start, its latest
+        login, its latest logout, AND its latest recorded video.
+
+        Anchoring to the latest VIDEO (and taking the MAX across every signal
+        instead of preferring logout_at) is essential.  A customer who Resumes a
+        session carries an OLD logout_at from the earlier visit; if a fresh clip
+        was just recorded, measuring age from that stale logout would wrongly
+        purge their brand-new gallery on the next app start.  Including the
+        latest video's created_at means recent footage always keeps the session
+        alive until it is genuinely inactive past the threshold.
 
         Returns the number of sessions cleaned up.
         """
@@ -62,22 +69,39 @@ class CleanupService:
         # Runs on the main thread (timer) but shares the one sqlite3 connection
         # with bg writers (recording-stop save), so take the read lock to avoid
         # interleaving with a writer's commit (same rationale as fix #10).
+        # Correlated subqueries (not a JOIN) keep one row per session and let
+        # scalar max() pick the latest signal; each subquery is COALESCEd to
+        # started_at so a NULL can't make scalar max() return NULL.
         with self._db.reading() as conn:
             rows = conn.execute(
                 """
-                SELECT s.id   AS session_id,
-                       s.name AS session_name,
-                       COALESCE(
-                           MAX(f.logout_at),
-                           MAX(f.login_at),
-                           s.started_at
-                       )      AS last_activity
-                FROM sessions s
-                LEFT JOIN footfall f ON f.session_id = s.id
-                WHERE s.active = 0
-                  AND s.purged_at IS NULL
-                GROUP BY s.id
-                HAVING last_activity < ?
+                SELECT session_id, session_name, last_activity FROM (
+                    SELECT
+                        s.id   AS session_id,
+                        s.name AS session_name,
+                        max(
+                            s.started_at,
+                            COALESCE(
+                                (SELECT MAX(login_at) FROM footfall
+                                 WHERE session_id = s.id),
+                                s.started_at
+                            ),
+                            COALESCE(
+                                (SELECT MAX(logout_at) FROM footfall
+                                 WHERE session_id = s.id),
+                                s.started_at
+                            ),
+                            COALESCE(
+                                (SELECT MAX(created_at) FROM videos
+                                 WHERE session_id = s.id),
+                                s.started_at
+                            )
+                        ) AS last_activity
+                    FROM sessions s
+                    WHERE s.active = 0
+                      AND s.purged_at IS NULL
+                )
+                WHERE last_activity < ?
                 """,
                 (threshold,),
             ).fetchall()
