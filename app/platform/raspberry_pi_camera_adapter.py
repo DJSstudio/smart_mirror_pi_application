@@ -178,7 +178,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
 # ---------------------------------------------------------------------------
 
 def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
-    return [
+    cmd = [
         "rpicam-vid",
         "--nopreview",
         # Use a 24-hour timeout instead of 0 to avoid version-specific
@@ -188,6 +188,24 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--height", str(height),
         "--framerate", str(fps),
         "--codec", "h264",
+    ]
+
+    # Pi 5 (BCM2712) has NO hardware H.264 encoder — the Pi 4's VideoCore VI did.
+    # On a Pi 5, "--codec h264" is routed to the libav software encoder (libx264),
+    # and libav cannot choose an output container for "-o -" (stdout has no
+    # filename extension), so rpicam-vid aborts at startup with
+    #   "libav: cannot allocate output context, try setting with --libav-format".
+    # Naming ffmpeg's raw H.264 Annex-B muxer explicitly fixes it, and the
+    # downstream "ffmpeg -f h264 -i pipe:0 -c:v copy" reads that byte stream
+    # unchanged (no _ffmpeg_tee_cmd change needed).  Gated to Pi 5 because the
+    # Pi 4 hardware-encoder path never touches libav, so the flag would be an
+    # unverified no-op there.  If the Pi 5 software encoder can't keep up
+    # (dropped frames / pegged CPU) at all-intra, add "--low-latency" here and/or
+    # relax the "--intra 1" below to a small GOP like "--intra 30".
+    if "Raspberry Pi 5" in BaseCameraAdapter.detect_pi_model():
+        cmd += ["--libav-format", "h264"]
+
+    cmd += [
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
         # Force every frame to be an IDR (intra=1).  This makes the UDP
         # preview stream fully intra-frame so a lost packet can never
@@ -199,6 +217,7 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--bitrate", str(bitrate),
         "-o", "-",
     ]
+    return cmd
 
 
 def _ffmpeg_tee_cmd(targets: str) -> list[str]:
