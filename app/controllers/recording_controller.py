@@ -174,21 +174,26 @@ class RecordingController(QObject):
         # Falls back to old immediate-recording mode (with 5s warmup trim)
         # for adapters that don't support split start/record (legacy ffmpeg
         # path, Pi camera path).
+        # Choose the path by CAPABILITY, not by catching an exception: on the
+        # Pi CSI / legacy adapters start_preview_only() succeeds but writes no
+        # capture file, so we must not take the deferred path for them (doing so
+        # reaches Stop with "no file was produced").  Only adapters that support
+        # begin_writing_file get the split preview→record flow.
         try:
-            preview = self._camera.start_preview_only()
-            self._deferred_recording = True
-        except Exception:  # noqa: BLE001
-            try:
+            if self._camera.supports_deferred_recording():
+                preview = self._camera.start_preview_only()
+                self._deferred_recording = True
+            else:
                 preview = self._camera.start_recording()
                 self._deferred_recording = False
-            except Exception as exc:  # noqa: BLE001
-                self._busy = False
-                self._countdown = 0
-                self._warmup_mirror_url = ""
-                self._set_error(str(exc))
-                self._app.showError(str(exc))
-                self._emit()
-                return
+        except Exception as exc:  # noqa: BLE001
+            self._busy = False
+            self._countdown = 0
+            self._warmup_mirror_url = ""
+            self._set_error(str(exc))
+            self._app.showError(str(exc))
+            self._emit()
+            return
 
         self._warmup_mirror_url = preview.mirror_preview_url
         self._backend_label = preview.backend

@@ -87,6 +87,21 @@ class CameraService:
         capture = self._stop_any(discard=discard)
         return capture
 
+    def supports_deferred_recording(self) -> bool:
+        """True if the selected backend supports the preview→record split
+        (start_preview_only warmup, then begin_writing_file at T=0).
+
+        Only the USB QCamera adapter does.  The Pi CSI and legacy ffmpeg
+        adapters MUST record from the start via start_recording() — for them,
+        start_preview_only() opens a preview that writes NO capture file, so if
+        the controller took the deferred path it would reach Stop with nothing
+        to save ("no file was produced").  The controller calls this up front to
+        pick the right path, because start_preview_only() succeeds (doesn't
+        raise) on those adapters and so can't be used to detect support.
+        """
+        adapter = self._active or self._pick(raise_on_missing=False)
+        return adapter is not None and hasattr(adapter, "begin_writing_file")
+
     def begin_writing_file(self) -> bool:
         """Switch the active adapter from preview-only to recording.  Used
         by recording_controller's deferred-recording flow: opens camera
