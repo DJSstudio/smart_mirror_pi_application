@@ -13,6 +13,7 @@ from app.media.ffmpeg_tools import (
     probe_dimensions,
     probe_duration,
     remux_h264_to_mp4,
+    remux_ts_to_mp4,
     safe_unlink,
     trim_mp4,
 )
@@ -82,6 +83,30 @@ class RecordingService:
             )
             try:
                 remux_h264_to_mp4(capture.file_path, mp4_path, fps, trim_start=trim_start)
+            except Exception as exc:  # noqa: BLE001
+                safe_unlink(capture.file_path)
+                raise RuntimeError(f"Failed to process recording: {exc}") from exc
+            safe_unlink(capture.file_path)
+            return PreparedRecording(file_path=mp4_path, backend=capture.backend)
+
+        if capture.file_format == "mpegts":
+            # Pi 5 path: the capture is an MPEG-TS file carrying the encoder's
+            # real per-frame PTS.  Remux to MP4 with -c copy and NO assumed fps,
+            # so the saved clip's duration/seek/thumbnail track the true frame
+            # timing (correct even at the imx415's ~15 fps).
+            if not capture.file_path.exists() or capture.file_path.stat().st_size < 512:
+                raise RuntimeError(
+                    "No video data was captured. "
+                    "If using the Pi camera, enable it via raspi-config → Interface Options → Camera and reboot. "
+                    "You can also switch to the USB backend in Settings."
+                )
+            mp4_path = capture.file_path.with_suffix(".mp4")
+            LOGGER.info(
+                "Remuxing MPEG-TS → MP4 (trim=%.1fs): %s → %s",
+                trim_start, capture.file_path, mp4_path,
+            )
+            try:
+                remux_ts_to_mp4(capture.file_path, mp4_path, trim_start=trim_start)
             except Exception as exc:  # noqa: BLE001
                 safe_unlink(capture.file_path)
                 raise RuntimeError(f"Failed to process recording: {exc}") from exc

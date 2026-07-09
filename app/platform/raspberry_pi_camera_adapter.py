@@ -5,10 +5,21 @@ import os
 import shutil
 import signal
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 from app.models.entities import CameraPreview, CompletedCapture
 from app.platform.base_camera_adapter import BaseCameraAdapter
+
+
+@lru_cache(maxsize=1)
+def _is_pi5() -> bool:
+    """True on a Raspberry Pi 5 (BCM2712), which — unlike the Pi 4 — has NO
+    hardware H.264 encoder.  On a Pi 5 rpicam-vid encodes H.264 in software via
+    libav/libx264, which changes how the stream must be muxed over the pipe
+    (see _rpicam_cmd / _ffmpeg_tee_cmd).  Cached: the model never changes at
+    runtime, so /proc/device-tree/model is read once."""
+    return "Raspberry Pi 5" in BaseCameraAdapter.detect_pi_model()
 
 
 class RaspberryPiCameraAdapter(BaseCameraAdapter):
@@ -56,18 +67,26 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
     ) -> CameraPreview:
         self.stop(discard=True)
         mir_port = self.allocate_udp_port()
-        cap_path = work_dir / f"capture_{os.getpid()}_{mir_port}.h264"
+        # Pi 5 records the capture as MPEG-TS (.ts) so it carries the encoder's
+        # real per-frame PTS — the saved file's duration/seek/thumbnail then stay
+        # correct even though the imx415 delivers ~15 fps (a raw-H.264 file has no
+        # timestamps and would be remuxed at an assumed fps, mis-timing the clip).
+        # Pi 4's hardware path keeps raw H.264 (.h264).  The mirror-preview UDP
+        # target is MPEG-TS on both — unchanged.
+        cap_fmt = "mpegts" if _is_pi5() else "h264"
+        cap_ext = "ts" if _is_pi5() else "h264"
+        cap_path = work_dir / f"capture_{os.getpid()}_{mir_port}.{cap_ext}"
 
         tee_targets = "|".join([
             f"[f=mpegts:onfail=ignore]udp://127.0.0.1:{mir_port}?pkt_size=1316",
-            f"[f=h264:onfail=ignore]{cap_path}",
+            f"[f={cap_fmt}:onfail=ignore]{cap_path}",
         ])
         self._spawn(
             rpicam_args=_rpicam_cmd(width, height, fps, bitrate),
             ffmpeg_args=_ffmpeg_tee_cmd(tee_targets),
         )
         self._capture_path = cap_path
-        self._capture_fmt = "h264"
+        self._capture_fmt = cap_fmt
         return CameraPreview(
             control_preview_url="",
             mirror_preview_url=_udp(mir_port),
@@ -192,18 +211,18 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
 
     # Pi 5 (BCM2712) has NO hardware H.264 encoder — the Pi 4's VideoCore VI did.
     # On a Pi 5, "--codec h264" is routed to the libav software encoder (libx264),
-    # and libav cannot choose an output container for "-o -" (stdout has no
-    # filename extension), so rpicam-vid aborts at startup with
-    #   "libav: cannot allocate output context, try setting with --libav-format".
-    # Naming ffmpeg's raw H.264 Annex-B muxer explicitly fixes it, and the
-    # downstream "ffmpeg -f h264 -i pipe:0 -c:v copy" reads that byte stream
-    # unchanged (no _ffmpeg_tee_cmd change needed).  Gated to Pi 5 because the
-    # Pi 4 hardware-encoder path never touches libav, so the flag would be an
-    # unverified no-op there.  If the Pi 5 software encoder can't keep up
-    # (dropped frames / pegged CPU) at all-intra, add "--low-latency" here and/or
-    # relax the "--intra 1" below to a small GOP like "--intra 30".
-    if "Raspberry Pi 5" in BaseCameraAdapter.detect_pi_model():
-        cmd += ["--libav-format", "h264"]
+    # which needs an explicit output container for "-o -" (stdout has no filename
+    # extension) or it aborts with "cannot allocate output context".  We mux to
+    # MPEG-TS: it carries real per-frame PTS/DTS (90 kHz), which the raw H.264
+    # Annex-B alternative does NOT.  Without those timestamps the downstream tee's
+    # MPEG-TS output muxer sees non-monotonic DTS ("1 >= 1"), all tee outputs
+    # fail, and rpicam dies on a broken pipe.  MPEG-TS end-to-end (paired with
+    # "-f mpegts" in _ffmpeg_tee_cmd) fixes both the crash and recording timing.
+    # Gated to Pi 5 because the Pi 4 hardware path emits a properly-timed raw
+    # H.264 stream and never touches libav.  (Verified on-device: sustains
+    # 720p all-intra software encode at the sensor's 15 fps, speed ~1.0x.)
+    if _is_pi5():
+        cmd += ["--libav-format", "mpegts"]
 
     cmd += [
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
@@ -221,14 +240,35 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
 
 
 def _ffmpeg_tee_cmd(targets: str) -> list[str]:
+    if _is_pi5():
+        # Pi 5: rpicam feeds an MPEG-TS stream (see _rpicam_cmd).  The demuxer
+        # must be told "-f mpegts", and probesize must exceed one 188-byte TS
+        # packet or the PAT/PMT can't be parsed (the old "32" — fine for raw
+        # H.264 — is smaller than a single TS packet).  probesize/analyzeduration
+        # are UPPER bounds, not fixed waits: PAT/PMT + the first (inline-SPS/PPS)
+        # IDR arrive within a few KB, so ffmpeg stops probing in <150 ms — no
+        # added steady-state latency.  "+genpts" regenerates any missing PTS as a
+        # safety net; "nobuffer"/"low_delay" keep preview latency low.
+        input_flags = [
+            "-fflags", "nobuffer+genpts",
+            "-flags", "low_delay",
+            "-probesize", "1000000",
+            "-analyzeduration", "1000000",
+            "-f", "mpegts",
+        ]
+    else:
+        # Pi 4: hardware encoder emits a raw H.264 Annex-B elementary stream.
+        input_flags = [
+            "-fflags", "nobuffer",
+            "-flags", "low_delay",
+            "-probesize", "32",
+            "-analyzeduration", "0",
+            "-f", "h264",
+        ]
     return [
         "ffmpeg",
         "-hide_banner", "-loglevel", "warning",
-        "-fflags", "nobuffer",
-        "-flags", "low_delay",
-        "-probesize", "32",
-        "-analyzeduration", "0",
-        "-f", "h264",
+        *input_flags,
         "-i", "pipe:0",
         "-an", "-c:v", "copy",
         "-map", "0:v:0",

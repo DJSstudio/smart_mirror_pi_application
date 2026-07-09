@@ -86,6 +86,30 @@ def remux_h264_to_mp4(src: Path, dst: Path, fps: int, trim_start: float = 0.0) -
     _run(cmd)
 
 
+def remux_ts_to_mp4(src: Path, dst: Path, trim_start: float = 0.0) -> None:
+    """Wrap an MPEG-TS stream in MP4 (no re-encode), preserving the real
+    capture timestamps the TS carries.
+
+    Unlike remux_h264_to_mp4, NO ``-r`` is set: the timing comes from the TS's
+    per-frame PTS, so the resulting duration/seek/thumbnail are correct even
+    when the true frame rate differs from any nominal request (e.g. a sensor
+    that only delivers ~15 fps) or when the software encoder drops frames.
+
+    If trim_start > 0, the first trim_start seconds are dropped via output seek
+    (-ss after -i).  Every frame is an IDR (rpicam --intra 1), so the seek is
+    frame-accurate.
+    """
+    cmd = [
+        _require("ffmpeg"),
+        "-hide_banner", "-loglevel", "warning",
+        "-i", str(src),
+    ]
+    if trim_start > 0:
+        cmd += ["-ss", str(trim_start)]
+    cmd += ["-c:v", "copy", "-movflags", "+faststart", "-y", str(dst)]
+    _run(cmd)
+
+
 def trim_mp4(src: Path, dst: Path, start_seconds: float) -> None:
     """Copy src → dst, discarding the first start_seconds via fast input seek.
 
