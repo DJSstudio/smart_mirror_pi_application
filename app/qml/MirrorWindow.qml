@@ -269,6 +269,14 @@ ApplicationWindow {
         id: livePreviewComp
         Item {
             id: _liveFlipWrapper
+            // True when the preview arrives as a stream URL (Pi CSI: a UDP
+            // MPEG-TS stream) rather than QCamera frames pushed to a videoSink
+            // (the USB QCamera path, where primarySource is empty).  The USB
+            // path renders via attachSink; the Pi path must play the URL, or
+            // the pane stays black.
+            readonly property bool hasUrl:
+                mirrorDisplay && mirrorDisplay.primarySource
+                && mirrorDisplay.primarySource.toString().length > 0
             transform: Scale {
                 // At 90°/270° the viewer's left↔right maps to image top↔bottom,
                 // so vflip (yScale) is the perceptual mirror; hflip otherwise.
@@ -280,9 +288,11 @@ ApplicationWindow {
                 origin.x: _liveFlipWrapper.width  / 2
                 origin.y: _liveFlipWrapper.height / 2
             }
+            // USB (QCamera) path: frames pushed directly to the videoSink.
             VideoOutput {
                 id: qtLiveOut
                 anchors.fill: parent
+                visible: !_liveFlipWrapper.hasUrl
                 fillMode: VideoOutput.PreserveAspectFit
                 Component.onCompleted: {
                     if (qtCamera) qtCamera.attachSink(qtLiveOut.videoSink)
@@ -290,6 +300,21 @@ ApplicationWindow {
                 Component.onDestruction: {
                     if (qtCamera) qtCamera.detachSink()
                 }
+            }
+            // Pi CSI path: the preview is a UDP MPEG-TS stream — play the URL.
+            MediaPlayer {
+                id: piLivePlayer
+                source: _liveFlipWrapper.hasUrl ? mirrorDisplay.primarySource : ""
+                videoOutput: piLiveOut
+                loops: MediaPlayer.Infinite
+                onSourceChanged: { stop(); if (source.toString().length) play() }
+                Component.onCompleted: { if (source.toString().length) play() }
+            }
+            VideoOutput {
+                id: piLiveOut
+                anchors.fill: parent
+                visible: _liveFlipWrapper.hasUrl
+                fillMode: VideoOutput.PreserveAspectFit
             }
         }
     }
