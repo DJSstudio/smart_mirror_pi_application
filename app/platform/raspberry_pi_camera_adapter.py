@@ -1,15 +1,38 @@
-"""Raspberry Pi CSI camera adapter using rpicam-vid + ffmpeg tee."""
+"""Raspberry Pi CSI camera adapters.
+
+Two paths:
+  - RaspberryPiCameraAdapter — rpicam-vid → ffmpeg (UDP MPEG-TS preview + capture).
+    Works everywhere but the H.264→decode preview adds ~0.5s latency.
+  - RaspberryPiLoopbackAdapter — feeds RAW frames into the /dev/video10
+    v4l2loopback device so the shared QtCameraSession previews AND records off
+    it directly (no encode/decode round-trip = low latency, same as a USB
+    camera).  Preferred when the loopback device is available; CameraService
+    falls back to the UDP adapter otherwise.
+"""
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import signal
 import subprocess
+import threading
+import time
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.models.entities import CameraPreview, CompletedCapture
 from app.platform.base_camera_adapter import BaseCameraAdapter
+
+if TYPE_CHECKING:
+    from app.services.qt_camera_session import QtCameraSession
+
+LOGGER = logging.getLogger(__name__)
+
+# v4l2loopback device the Pi CSI raw frames are fed into (set up by
+# scripts/install_deps.sh: video_nr=10, card_label=MirrorPreview).
+_LOOPBACK_DEVICE = "/dev/video10"
 
 
 @lru_cache(maxsize=1)
@@ -299,3 +322,205 @@ def _terminate(proc: subprocess.Popen, label: str) -> None:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+
+def _drain(pipe, label: str) -> None:
+    """Drain a subprocess stderr pipe in a daemon thread so it can't fill and
+    stall the process; log each line."""
+    if pipe is None:
+        return
+
+    def _run() -> None:
+        try:
+            for raw in iter(pipe.readline, b""):
+                line = raw.decode(errors="replace").rstrip()
+                if line:
+                    LOGGER.info("[%s] %s", label, line)
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Low-latency loopback path (Pi CSI → /dev/video10 → QtCameraSession)
+# ---------------------------------------------------------------------------
+
+class LoopbackFeeder:
+    """Pipe a Pi CSI camera's RAW frames into the v4l2loopback device so Qt can
+    read them as an ordinary V4L2 camera — giving the Pi CSI preview the same
+    direct, low-latency path as a USB camera (no H.264 encode/decode round-trip).
+
+    Pipeline (validated on-device):
+      rpicam-vid --codec yuv420 -o -  |  ffmpeg -f rawvideo … -f v4l2 /dev/video10
+    """
+
+    def __init__(self, device: str = _LOOPBACK_DEVICE) -> None:
+        self._device = device
+        self._rpicam: subprocess.Popen | None = None
+        self._ffmpeg: subprocess.Popen | None = None
+
+    def start(self, width: int, height: int, fps: int) -> None:
+        self.stop()
+        if not shutil.which("rpicam-vid") or not shutil.which("ffmpeg"):
+            raise RuntimeError("rpicam-vid and ffmpeg are required for the Pi camera loopback")
+        rpicam = [
+            "rpicam-vid", "--nopreview", "--timeout", "86400000",
+            "--width", str(width), "--height", str(height),
+            "--framerate", str(fps), "--codec", "yuv420", "-o", "-",
+        ]
+        ffmpeg = [
+            "ffmpeg", "-hide_banner", "-loglevel", "warning",
+            "-f", "rawvideo", "-pix_fmt", "yuv420p",
+            "-s", f"{width}x{height}", "-r", str(fps), "-i", "pipe:0",
+            "-c:v", "rawvideo", "-f", "v4l2", "-pix_fmt", "yuv420p", self._device,
+        ]
+        LOGGER.info("Starting Pi camera → %s loopback feeder (%dx%d@%d)",
+                    self._device, width, height, fps)
+        self._rpicam = subprocess.Popen(rpicam, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        rpicam_out = self._rpicam.stdout
+        assert rpicam_out is not None
+        try:
+            self._ffmpeg = subprocess.Popen(
+                ffmpeg, stdin=rpicam_out,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+        except Exception:
+            self._rpicam.kill()
+            self._rpicam.wait()
+            self._rpicam = None
+            raise
+        rpicam_out.close()  # let ffmpeg own the pipe
+        _drain(self._rpicam.stderr, "loopback-rpicam")
+        _drain(self._ffmpeg.stderr, "loopback-ffmpeg")
+
+    def wait_ready(self, timeout: float = 4.0) -> bool:
+        """Block until Qt can see the loopback device — it enumerates only once
+        ffmpeg has negotiated its format.  Runs on the GUI thread during the
+        camera warm-up window, so the short poll is acceptable."""
+        from PySide6.QtMultimedia import QMediaDevices  # noqa: PLC0415
+        want = self._device.encode()
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._ffmpeg is not None and self._ffmpeg.poll() is not None:
+                LOGGER.warning("Loopback feeder ffmpeg exited before the device was ready")
+                return False
+            for dev in QMediaDevices.videoInputs():
+                if dev.id() == want or "MirrorPreview" in dev.description():
+                    LOGGER.info("Loopback device %s ready", self._device)
+                    return True
+            time.sleep(0.15)
+        LOGGER.warning("Loopback device %s not ready within %.1fs", self._device, timeout)
+        return False
+
+    def is_alive(self) -> bool:
+        return (self._rpicam is not None and self._rpicam.poll() is None
+                and self._ffmpeg is not None and self._ffmpeg.poll() is None)
+
+    def stop(self) -> None:
+        for proc, label in ((self._rpicam, "rpicam"), (self._ffmpeg, "ffmpeg")):
+            if proc is not None and proc.poll() is None:
+                _terminate(proc, f"loopback-{label}")
+        self._rpicam = None
+        self._ffmpeg = None
+
+
+class RaspberryPiLoopbackAdapter(BaseCameraAdapter):
+    """Low-latency Pi CSI path: feed raw frames to /dev/video10, then let the
+    shared QtCameraSession preview AND record off it — the same direct-sink path
+    a USB camera uses.  Requires the v4l2loopback device and an attached
+    QtCameraSession; CameraService falls back to RaspberryPiCameraAdapter (the
+    UDP/MPEG-TS path) when this isn't available."""
+
+    backend_name = "raspberry_pi"
+
+    def __init__(self, session: QtCameraSession, device: str = _LOOPBACK_DEVICE) -> None:
+        super().__init__()
+        self._session = session
+        self._device = device
+        self._feeder = LoopbackFeeder(device)
+        self._capture_path: Path | None = None
+
+    def is_available(self) -> bool:
+        return (
+            self._session is not None
+            and Path(self._device).exists()
+            and shutil.which("rpicam-vid") is not None
+            and shutil.which("ffmpeg") is not None
+        )
+
+    def _start_feeder(self, width: int, height: int, fps: int) -> None:
+        self._feeder.start(width, height, fps)
+        if not self._feeder.wait_ready():
+            self._feeder.stop()
+            raise RuntimeError(
+                f"Pi camera loopback ({self._device}) did not become ready. "
+                "Check that v4l2loopback is loaded and the CSI camera is connected."
+            )
+
+    def start_preview(self, *, work_dir: Path, width: int, height: int, fps: int,
+                      bitrate: int, device_hint: str | None,
+                      mirror_flip: bool = False,
+                      mirror_orientation_degrees: int = 0) -> CameraPreview:
+        self.stop(discard=True)
+        self._start_feeder(width, height, fps)
+        self._session.start_preview(
+            device_hint=self._device, width=width, height=height, fps=fps,
+            mirror_flip=mirror_flip, mirror_orientation_degrees=mirror_orientation_degrees,
+        )
+        self._capture_path = None
+        return CameraPreview(
+            control_preview_url="", mirror_preview_url="",   # mirror reads the videoSink directly
+            backend=self.backend_name, recording=False,
+        )
+
+    def start_recording(self, *, work_dir: Path, width: int, height: int, fps: int,
+                        bitrate: int, device_hint: str | None,
+                        mirror_flip: bool = False,
+                        mirror_orientation_degrees: int = 0) -> CameraPreview:
+        self.stop(discard=True)
+        self._start_feeder(width, height, fps)
+        cap_path = work_dir / f"capture_picsi_{id(self):x}.mp4"
+        self._session.start_recording(
+            device_hint=self._device, width=width, height=height, fps=fps,
+            bitrate=bitrate, output_path=cap_path,
+            mirror_flip=mirror_flip, mirror_orientation_degrees=mirror_orientation_degrees,
+        )
+        self._capture_path = cap_path
+        return CameraPreview(
+            control_preview_url="", mirror_preview_url="",
+            backend=self.backend_name, recording=True,
+        )
+
+    def begin_writing_file(self, work_dir: Path) -> Path | None:
+        """Deferred recording: the camera is already previewing /dev/video10, so
+        just start writing the file at T=0 (no countdown in the clip)."""
+        if not self._session.is_alive():
+            return None
+        cap_path = work_dir / f"capture_picsi_{int(time.time() * 1000)}.mp4"
+        self._session.begin_recording(cap_path)
+        self._capture_path = cap_path
+        return cap_path
+
+    def stop(self, discard: bool = False) -> CompletedCapture | None:
+        recorded: Path | None = None
+        try:
+            recorded = self._session.stop()
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Loopback session stop failed: %s", exc)
+        self._feeder.stop()
+
+        cap_path = self._capture_path
+        self._capture_path = None
+        if discard:
+            for p in {cap_path, recorded}:
+                if p is not None:
+                    p.unlink(missing_ok=True)
+            return None
+        final = recorded or cap_path
+        if final is None or not final.exists():
+            return None
+        return CompletedCapture(file_path=final, file_format="mp4", backend=self.backend_name)
+
+    def is_alive(self) -> bool:
+        return self._feeder.is_alive() and self._session.is_alive()

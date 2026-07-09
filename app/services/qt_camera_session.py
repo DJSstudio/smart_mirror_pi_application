@@ -650,16 +650,32 @@ class QtCameraSession(QObject):
     def _pick_device(self, hint: str | None):
         """Find a camera matching the hint, preferring the cache populated
         at startup (before anything could lock devices)."""
-        cameras = list(self._cached_devices) or list(QMediaDevices.videoInputs())
-        if not cameras:
-            return None
-        if hint:
+        def _match(devs):
+            if not hint:
+                return None
             hint_b = hint.encode() if isinstance(hint, str) else hint
-            for dev in cameras:
+            for dev in devs:
                 if dev.id() == hint_b or hint in dev.description():
                     return dev
+            return None
+
+        cameras = list(self._cached_devices) or list(QMediaDevices.videoInputs())
+        match = _match(cameras)
+        if match is not None:
+            return match
+        if hint:
+            # The hint wasn't in the startup-primed list.  Some devices only
+            # appear after startup — notably the /dev/video10 v4l2loopback used
+            # for the Pi CSI camera, which enumerates only once its feeder is
+            # running.  Re-query live before giving up on the hint.
+            fresh = list(QMediaDevices.videoInputs())
+            match = _match(fresh)
+            if match is not None:
+                return match
             LOGGER.warning("Camera hint %r not matched — falling back to first device", hint)
-        return cameras[0]
+        if not cameras:
+            cameras = list(QMediaDevices.videoInputs())
+        return cameras[0] if cameras else None
 
 
 

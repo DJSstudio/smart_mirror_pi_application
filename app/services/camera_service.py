@@ -8,7 +8,10 @@ from pathlib import Path
 from app.config.paths import AppPaths
 from app.models.entities import CameraPreview, CompletedCapture
 from app.platform.qt_camera_adapter import QtCameraAdapter
-from app.platform.raspberry_pi_camera_adapter import RaspberryPiCameraAdapter
+from app.platform.raspberry_pi_camera_adapter import (
+    RaspberryPiCameraAdapter,
+    RaspberryPiLoopbackAdapter,
+)
 from app.platform.usb_camera_adapter import UsbCameraAdapter
 from app.services.qt_camera_session import QtCameraSession
 from app.services.settings_service import SettingsService
@@ -24,7 +27,8 @@ class CameraService:
     def __init__(self, paths: AppPaths, settings: SettingsService) -> None:
         self._paths = paths
         self._settings = settings
-        self._pi = RaspberryPiCameraAdapter()
+        self._pi = RaspberryPiCameraAdapter()           # Pi CSI: UDP MPEG-TS (works everywhere, ~0.5s preview lag)
+        self._pi_loopback: RaspberryPiLoopbackAdapter | None = None  # Pi CSI: low-latency via /dev/video10
         self._usb = UsbCameraAdapter()                  # legacy ffmpeg+UDP fallback
         self._qt_usb: QtCameraAdapter | None = None     # default USB path (QCamera + ffmpeg-pipe)
         self._active = None
@@ -32,6 +36,17 @@ class CameraService:
     def attach_qt_camera_session(self, session: QtCameraSession) -> None:
         """Inject the Qt camera session after QGuiApplication exists."""
         self._qt_usb = QtCameraAdapter(session)
+        # The Pi CSI low-latency path reuses the same session (reads the
+        # /dev/video10 loopback fed from the CSI camera).
+        self._pi_loopback = RaspberryPiLoopbackAdapter(session)
+
+    def _pi_backend(self):
+        """The Pi CSI backend: prefer the low-latency v4l2loopback path when the
+        loopback device + Qt session are available; otherwise the UDP MPEG-TS
+        path.  (Caller has already confirmed the CSI camera is present.)"""
+        if self._pi_loopback is not None and self._pi_loopback.is_available():
+            return self._pi_loopback
+        return self._pi
 
     # ------------------------------------------------------------------
     # Public API
@@ -194,7 +209,7 @@ class CameraService:
         qt_ready = self._qt_usb is not None
 
         if pref == "raspberry_pi" and self._pi.is_available():
-            return self._pi
+            return self._pi_backend()
         if pref == "usb_ffmpeg" and self._usb.is_available():
             return self._usb
         if pref in ("usb", "usb_qt"):
@@ -204,7 +219,7 @@ class CameraService:
                 return self._usb
         # auto
         if self._pi.is_available():
-            return self._pi
+            return self._pi_backend()
         if qt_ready:
             return self._qt_usb
         if self._usb.is_available():
