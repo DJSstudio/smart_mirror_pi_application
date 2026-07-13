@@ -123,18 +123,25 @@ echo ""
 echo "--- Configuring v4l2loopback to load at boot ---"
 # Persistent module load + options so /dev/video10 exists after every reboot.
 # video_nr=10 → fixed device path so the app always knows where to find it.
-# exclusive_caps=1 → reports as a capture device so QCamera enumerates it.
-# card_label gives it a friendly name in QMediaDevices.
+# card_label gives it a friendly name (MirrorPreview) in QMediaDevices.
+# exclusive_caps=0 (NOT 1) is deliberate and load-bearing: Qt's camera list
+# refreshes only when a /dev/videoN node is ADDED/REMOVED, never on a capability
+# change.  With exclusive_caps=1 the node is OUTPUT-only until the feeder attaches
+# (a capability flip, not a node add), so Qt — which scanned once at app startup —
+# never sees it and the low-latency preview can't open.  exclusive_caps=0 makes
+# the node advertise CAPTURE at all times, so Qt enumerates it at startup and the
+# loopback path activates.  (If Qt lists MirrorPreview but with 0 formats, pin one
+# with:  sudo v4l2loopback-ctl set-caps '/dev/video10' 'YU12:1280x720@30/1' )
 sudo tee /etc/modules-load.d/v4l2loopback.conf >/dev/null <<'EOF'
 v4l2loopback
 EOF
 sudo tee /etc/modprobe.d/v4l2loopback.conf >/dev/null <<'EOF'
-options v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=1
+options v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=0
 EOF
 # Load now without reboot
 sudo modprobe -r v4l2loopback 2>/dev/null || true
-sudo modprobe v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=1
-echo "  v4l2loopback loaded; /dev/video10 is the preview pipe."
+sudo modprobe v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=0
+echo "  v4l2loopback loaded (exclusive_caps=0); /dev/video10 is the preview pipe."
 
 echo ""
 echo "=== Done! ==="
