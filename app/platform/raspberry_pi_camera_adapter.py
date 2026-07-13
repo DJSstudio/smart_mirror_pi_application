@@ -394,23 +394,37 @@ class LoopbackFeeder:
         _drain(self._rpicam.stderr, "loopback-rpicam")
         _drain(self._ffmpeg.stderr, "loopback-ffmpeg")
 
-    def wait_ready(self, timeout: float = 4.0) -> bool:
+    def wait_ready(self, timeout: float = 8.0) -> bool:
         """Block until Qt can see the loopback device — it enumerates only once
-        ffmpeg has negotiated its format.  Runs on the GUI thread during the
-        camera warm-up window, so the short poll is acceptable."""
+        ffmpeg has negotiated its format.
+
+        Runs on the GUI thread during the camera warm-up window.  CRUCIAL:
+        QMediaDevices refreshes its device list THROUGH the Qt event loop, so we
+        must pump it (processEvents) while waiting — otherwise, blocking the GUI
+        thread here prevents Qt from ever noticing the loopback came online, and
+        this always times out.  ExcludeUserInputEvents avoids re-entering the UI
+        (e.g. a double-tap on Record) during the wait.
+        """
+        from PySide6.QtCore import QCoreApplication, QEventLoop  # noqa: PLC0415
         from PySide6.QtMultimedia import QMediaDevices  # noqa: PLC0415
         want = self._device.encode()
+        flags = QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             if self._ffmpeg is not None and self._ffmpeg.poll() is not None:
                 LOGGER.warning("Loopback feeder ffmpeg exited before the device was ready")
                 return False
+            QCoreApplication.processEvents(flags, 100)  # let QMediaDevices update
             for dev in QMediaDevices.videoInputs():
                 if dev.id() == want or "MirrorPreview" in dev.description():
                     LOGGER.info("Loopback device %s ready", self._device)
                     return True
-            time.sleep(0.15)
-        LOGGER.warning("Loopback device %s not ready within %.1fs", self._device, timeout)
+            time.sleep(0.1)
+        seen = [d.description() for d in QMediaDevices.videoInputs()]
+        LOGGER.warning(
+            "Loopback device %s not ready within %.1fs; Qt currently sees: %s",
+            self._device, timeout, seen or "(no video inputs)",
+        )
         return False
 
     def is_alive(self) -> bool:
