@@ -82,11 +82,11 @@ class SettingsController(QObject):
 
     @Property(int, notify=changed)
     def cameraWidth(self) -> int:
-        return int(self._settings.get("camera_width", 1280))
+        return int(self._settings.get("camera_width", 3840))
 
     @Property(int, notify=changed)
     def cameraHeight(self) -> int:
-        return int(self._settings.get("camera_height", 720))
+        return int(self._settings.get("camera_height", 2160))
 
     @Property(int, notify=changed)
     def cameraFps(self) -> int:

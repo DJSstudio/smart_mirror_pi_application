@@ -60,6 +60,7 @@ Item {
                             model: [
                                 { label: "720p",  w: 1280, h: 720  },
                                 { label: "1080p", w: 1920, h: 1080 },
+                                { label: "4K",    w: 3840, h: 2160 },
                             ]
                             AppButton {
                                 text: modelData.label
@@ -79,7 +80,7 @@ Item {
                     RowLayout {
                         spacing: 6
                         Repeater {
-                            model: [30, 60]
+                            model: [15, 30, 60]
                             AppButton {
                                 text: modelData + " fps"
                                 variant: settingsController.cameraFps === modelData

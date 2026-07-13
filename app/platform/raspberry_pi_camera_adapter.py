@@ -95,6 +95,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         mirror_orientation_degrees: int = 0,
     ) -> CameraPreview:
         self.stop(discard=True)
+        fps = _csi_fps(fps)
         mir_port = self.allocate_udp_port()
         # Pi 5 records the capture as MPEG-TS (.ts) so it carries the encoder's
         # real per-frame PTS — the saved file's duration/seek/thumbnail then stay
@@ -136,6 +137,7 @@ class RaspberryPiCameraAdapter(BaseCameraAdapter):
         mirror_orientation_degrees: int = 0,
     ) -> CameraPreview:
         self.stop(discard=True)
+        fps = _csi_fps(fps)
         mir_port = self.allocate_udp_port()
 
         tee_targets = (
@@ -251,7 +253,12 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
     # H.264 stream and never touches libav.  (Verified on-device: sustains
     # 720p all-intra software encode at the sensor's 15 fps, speed ~1.0x.)
     if _is_pi5():
-        cmd += ["--libav-format", "mpegts"]
+        cmd += [
+            "--libav-format", "mpegts",
+            # Pi 5 encodes H.264 in software. This disables encoder look-ahead
+            # that otherwise adds visible delay to the UDP fallback.
+            "--low-latency",
+        ]
 
     cmd += [
         "--inline",   # embed SPS+PPS in every IDR frame (required for streaming)
@@ -316,6 +323,11 @@ def _udp(port: int) -> str:
     return f"udp://127.0.0.1:{port}?overrun_nonfatal=1&fifo_size=262144"
 
 
+def _csi_fps(requested: int) -> int:
+    """Keep CSI capture inside the IMX415 mode used by this application."""
+    return max(1, min(int(requested), _PI_CSI_MAX_FPS))
+
+
 def _terminate(proc: subprocess.Popen, label: str) -> None:
     if proc.poll() is not None:
         return
@@ -377,9 +389,13 @@ class LoopbackFeeder:
         ]
         ffmpeg = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
+            # Avoid an input queue: back-pressure is preferable to rendering
+            # stale frames after a transient load spike.
+            "-fflags", "nobuffer", "-flags", "low_delay",
             "-f", "rawvideo", "-pix_fmt", "yuv420p",
             "-s", f"{width}x{height}", "-r", str(fps), "-i", "pipe:0",
-            "-c:v", "rawvideo", "-f", "v4l2", "-pix_fmt", "yuv420p", self._device,
+            "-c:v", "rawvideo", "-flush_packets", "1",
+            "-f", "v4l2", "-pix_fmt", "yuv420p", self._device,
         ]
         LOGGER.info("Starting Pi camera → %s loopback feeder (%dx%d@%d)",
                     self._device, width, height, fps)
@@ -500,8 +516,9 @@ class RaspberryPiLoopbackAdapter(BaseCameraAdapter):
                       mirror_flip: bool = False,
                       mirror_orientation_degrees: int = 0) -> CameraPreview:
         self.stop(discard=True)
-        fps = min(fps, _PI_CSI_MAX_FPS)
+        fps = _csi_fps(fps)
         self._start_feeder(width, height, fps)
+        self._session.set_recording_bitrate(bitrate)
         self._session.start_preview(
             device_hint=self._device, width=width, height=height, fps=fps,
             mirror_flip=mirror_flip, mirror_orientation_degrees=mirror_orientation_degrees,
@@ -517,7 +534,7 @@ class RaspberryPiLoopbackAdapter(BaseCameraAdapter):
                         mirror_flip: bool = False,
                         mirror_orientation_degrees: int = 0) -> CameraPreview:
         self.stop(discard=True)
-        fps = min(fps, _PI_CSI_MAX_FPS)
+        fps = _csi_fps(fps)
         self._start_feeder(width, height, fps)
         cap_path = work_dir / f"capture_picsi_{id(self):x}.mp4"
         self._session.start_recording(

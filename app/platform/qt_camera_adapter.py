@@ -73,6 +73,7 @@ class QtCameraAdapter(BaseCameraAdapter):
         mirror_flip: bool = False,
         mirror_orientation_degrees: int = 0,
     ) -> CameraPreview:
+        self._session.set_recording_bitrate(bitrate)
         self._session.start_preview(
             device_hint=device_hint,
             width=width, height=height, fps=fps,

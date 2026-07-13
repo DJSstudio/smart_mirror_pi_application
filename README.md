@@ -145,10 +145,10 @@ Edit `config/settings.json` (or use the Settings screen in the UI):
 |-----------------------------|---------------|------------------------------------------|
 | `camera_backend`            | `"auto"`      | `"auto"` / `"raspberry_pi"` / `"usb"`   |
 | `camera_device`             | `""`          | Explicit `/dev/videoN` path              |
-| `camera_width`              | `1280`        | Capture resolution width                 |
-| `camera_height`             | `720`         | Capture resolution height                |
+| `camera_width`              | `3840`        | Capture resolution width                 |
+| `camera_height`             | `2160`        | Capture resolution height                |
 | `camera_fps`                | `30`          | Frames per second                        |
-| `camera_bitrate`            | `8000000`     | Encoding bitrate (bps)                   |
+| `camera_bitrate`            | `25000000`    | Encoding bitrate (bps)                   |
 | `mirror_orientation_degrees`| `0`           | 0 / 90 / 180 / 270                       |
 | `compare_fill_crop`         | `true`        | Crop-to-fill compare panes               |
 | `control_screen_index`      | `0`           | Qt screen index for control window       |
@@ -161,8 +161,28 @@ Edit `config/settings.json` (or use the Settings screen in the UI):
 
 ### Raspberry Pi CSI camera (rpicam-vid)
 - Requires `rpicam-apps` and the camera enabled in `raspi-config`
-- Pipeline: `rpicam-vid` → `ffmpeg tee` → UDP preview streams + H.264 capture file
-- Capture is remuxed H.264 → MP4 before review/save
+- The default configuration selects this backend explicitly at 3840×2160, 30 fps
+- Low-latency pipeline: `rpicam-vid --codec yuv420` → `/dev/video10`
+  (`v4l2loopback`) → Qt `VideoOutput`; recording reads the same live frames
+- The installer must load `v4l2loopback` with `exclusive_caps=0`. If it was
+  previously installed with `exclusive_caps=1`, rerun `scripts/install_deps.sh`
+  (or update `/etc/modprobe.d/v4l2loopback.conf` and reboot).
+- If the loopback is unavailable, the app falls back to an H.264/MPEG-TS UDP
+  preview. On Pi 5 that fallback uses rpicam's software-encoder low-latency mode,
+  but the raw loopback remains the preferred real-time path.
+
+For an IMX415, first confirm that libcamera sees the sensor and that the virtual
+preview device has the expected capabilities:
+
+```bash
+rpicam-vid --list-cameras
+v4l2-ctl --all -d /dev/video10
+cat /sys/module/v4l2loopback/parameters/exclusive_caps
+```
+
+The first command should list `imx415`; the last command should print `N`. The
+application log should then contain `Starting Pi camera → /dev/video10 loopback`
+instead of selecting the UDP preview.
 
 ### USB webcam (V4L2 via ffmpeg)
 - Auto-detects `/dev/video*` devices

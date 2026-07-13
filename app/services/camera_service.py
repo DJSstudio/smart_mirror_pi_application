@@ -59,10 +59,10 @@ class CameraService:
         self._active = adapter
         return adapter.start_recording(
             work_dir=self._paths.temp_dir,
-            width=int(self._settings.get("camera_width", 1280)),
-            height=int(self._settings.get("camera_height", 720)),
+            width=int(self._settings.get("camera_width", 3840)),
+            height=int(self._settings.get("camera_height", 2160)),
             fps=int(self._settings.get("camera_fps", 30)),
-            bitrate=int(self._settings.get("camera_bitrate", 8_000_000)),
+            bitrate=int(self._settings.get("camera_bitrate", 25_000_000)),
             device_hint=self._settings.get("camera_device") or None,
             mirror_flip=bool(self._settings.get("camera_mirror_flip", False)),
             mirror_orientation_degrees=int(self._settings.get("mirror_orientation_degrees", 0)),
@@ -89,10 +89,10 @@ class CameraService:
         self._active = adapter
         return adapter.start_preview(
             work_dir=self._paths.temp_dir,
-            width=int(self._settings.get("camera_width", 1280)),
-            height=int(self._settings.get("camera_height", 720)),
+            width=int(self._settings.get("camera_width", 3840)),
+            height=int(self._settings.get("camera_height", 2160)),
             fps=int(self._settings.get("camera_fps", 30)),
-            bitrate=int(self._settings.get("camera_bitrate", 8_000_000)),
+            bitrate=int(self._settings.get("camera_bitrate", 25_000_000)),
             device_hint=self._settings.get("camera_device") or None,
             mirror_flip=bool(self._settings.get("camera_mirror_flip", False)),
             mirror_orientation_degrees=int(self._settings.get("mirror_orientation_degrees", 0)),
@@ -165,6 +165,9 @@ class CameraService:
         """Check which camera backends are actually working (not just installed)."""
         return {
             "Pi camera (CSI)": self._pi.is_available(),
+            "Pi low-latency preview": (
+                self._pi_loopback is not None and self._pi_loopback.is_available()
+            ),
             "USB webcam":      self._usb.is_available(),
         }
 

@@ -123,17 +123,25 @@ echo ""
 echo "--- Configuring v4l2loopback to load at boot ---"
 # Persistent module load + options so /dev/video10 exists after every reboot.
 # video_nr=10 → fixed device path so the app always knows where to find it.
-# exclusive_caps=1 → reports as a capture device so QCamera enumerates it.
+# exclusive_caps=0 is intentional: Qt enumerates cameras before the CSI feeder
+# starts. With exclusive_caps=1 the node is OUTPUT-only at that point, so Qt
+# never caches it and the app falls back to the delayed UDP preview.
 # card_label gives it a friendly name in QMediaDevices.
 sudo tee /etc/modules-load.d/v4l2loopback.conf >/dev/null <<'EOF'
 v4l2loopback
 EOF
 sudo tee /etc/modprobe.d/v4l2loopback.conf >/dev/null <<'EOF'
-options v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=1
+options v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=0
 EOF
 # Load now without reboot
 sudo modprobe -r v4l2loopback 2>/dev/null || true
-sudo modprobe v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=1
+sudo modprobe v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=0
+loopback_caps="$(cat /sys/module/v4l2loopback/parameters/exclusive_caps 2>/dev/null || true)"
+if [[ "${loopback_caps}" != "N" && "${loopback_caps}" != "0" ]]; then
+    echo "ERROR: v4l2loopback is still loaded with exclusive_caps enabled."
+    echo "Stop the smart-mirror service, unload v4l2loopback, and rerun this installer."
+    exit 1
+fi
 echo "  v4l2loopback loaded; /dev/video10 is the preview pipe."
 
 echo ""

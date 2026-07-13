@@ -76,6 +76,7 @@ class QtCameraSession(QObject):
         self._mirror_orientation_degrees: int = 0
         self._recording_path: Path | None = None
         self._recording_target_fps: int = 30
+        self._recording_bitrate: int = 25_000_000
         self._actual_fps: float = 30.0   # camera-advertised max
         self._ffmpeg: subprocess.Popen | None = None
         self._first_frame_seen: bool = False
@@ -86,7 +87,9 @@ class QtCameraSession(QObject):
         self._last_frame_wallclock: float = 0.0
 
         # M1: dedicated writer thread keeps ffmpeg pipe writes off the GUI thread
-        self._write_queue: queue.Queue = queue.Queue(maxsize=8)
+        # Bound encoder lag: a long FIFO turns a temporary slowdown into a
+        # delayed recording even after the encoder recovers.
+        self._write_queue: queue.Queue = queue.Queue(maxsize=2)
         self._writer_thread: threading.Thread | None = None
 
         # Cross-thread stop coordination
@@ -253,6 +256,7 @@ class QtCameraSession(QObject):
         self.start_preview(device_hint, width, height, fps,
                           mirror_flip=mirror_flip,
                           mirror_orientation_degrees=mirror_orientation_degrees)
+        self._recording_bitrate = max(1_000_000, int(bitrate))
         self._recording_path = output_path
         self._recording_target_fps = fps
         self._first_frame_seen = False
@@ -280,6 +284,10 @@ class QtCameraSession(QObject):
         self._connect_frame_handler()
         LOGGER.info("Recording started on existing camera session → %s", output_path)
         return output_path
+
+    def set_recording_bitrate(self, bitrate: int) -> None:
+        """Set the bitrate used if recording begins on an existing preview."""
+        self._recording_bitrate = max(1_000_000, int(bitrate))
 
     def end_recording(self) -> Path | None:
         """Stop recording but keep the camera running.
@@ -368,7 +376,15 @@ class QtCameraSession(QObject):
             self._write_queue.put_nowait(chunks)
             self._last_frame_wallclock = time.monotonic()
         except queue.Full:
-            LOGGER.debug("Frame dropped: ffmpeg writer thread is behind")
+            # Prefer the current image to an old queued image. This keeps the
+            # capture near live time instead of accumulating stale frames.
+            try:
+                self._write_queue.get_nowait()
+                self._write_queue.put_nowait(chunks)
+                self._last_frame_wallclock = time.monotonic()
+            except (queue.Empty, queue.Full):
+                pass
+            LOGGER.debug("Oldest frame dropped: ffmpeg writer thread is behind")
 
     def _spawn_ffmpeg(self, frame: QVideoFrame) -> None:
         """Build an ffmpeg command tailored to the actual frame format and
@@ -413,6 +429,9 @@ class QtCameraSession(QObject):
                 *vf,
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-tune", "zerolatency",
+                "-b:v", str(self._recording_bitrate),
+                "-maxrate", str(self._recording_bitrate),
+                "-bufsize", str(self._recording_bitrate),
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-y", str(out_path),
@@ -439,6 +458,9 @@ class QtCameraSession(QObject):
                 *vf,
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-tune", "zerolatency",
+                "-b:v", str(self._recording_bitrate),
+                "-maxrate", str(self._recording_bitrate),
+                "-bufsize", str(self._recording_bitrate),
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-y", str(out_path),
@@ -460,7 +482,7 @@ class QtCameraSession(QObject):
             daemon=True,
         ).start()
         # Fresh queue + writer thread for this recording session
-        self._write_queue = queue.Queue(maxsize=8)
+        self._write_queue = queue.Queue(maxsize=2)
         self._writer_thread = threading.Thread(
             target=self._writer_loop,
             name="ffmpeg-writer",
