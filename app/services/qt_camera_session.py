@@ -348,14 +348,59 @@ class QtCameraSession(QObject):
         if not frame.map(QVideoFrame.MapMode.ReadOnly):
             return
         try:
-            planes = frame.planeCount()
+            w = frame.width()
+            h = frame.height()
+            fmt = frame.pixelFormat()
+            # Derive plane geometry from the FORMAT, never from mappedBytes():
+            # frame.bits(p) is a zero-copy memoryview whose declared length ==
+            # mappedBytes(p), and for externally-backed frames (Pi CSI →
+            # v4l2loopback → QCamera) the backend can OVER-report that size
+            # (scanline padding / over-sized chroma plane).  Slicing to it then
+            # memcpy's past the real mapping → SIGSEGV.  Copying exactly the tight
+            # rows the pixel format defines both prevents that over-read AND
+            # strips stride padding so ffmpeg's rawvideo -video_size WxH is correct.
+            geom = _plane_geometry(fmt, w, h)
             chunks: list[bytes] = []
-            for p in range(planes):
-                bits = frame.bits(p)
+            for p in range(frame.planeCount()):
+                bits = frame.bits(p)          # memoryview; len == mappedBytes(p)
                 if bits is None:
+                    return                    # incomplete map → drop the whole frame
+                buf_len = len(bits)
+                stride = frame.bytesPerLine(p)
+
+                if geom is None or p >= len(geom):
+                    # Compressed (Jpeg) / unknown: a self-sized bytestream, no
+                    # strided plane layout — copy the declared buffer as before.
+                    chunks.append(bytes(bits[:buf_len]))
                     continue
-                nbytes = frame.mappedBytes(p)
-                chunks.append(bytes(bits[:nbytes]))
+
+                row_bytes, rows = geom[p]
+                if stride <= 0:
+                    stride = row_bytes        # backend omitted stride → assume tight
+                if row_bytes <= 0 or rows <= 0 or stride < row_bytes:
+                    return                    # layout disagrees with format → drop, don't guess
+
+                if stride == row_bytes:
+                    # Tightly packed: one bounded copy, sized by format geometry
+                    # (not mappedBytes), clamped to whole rows if the buffer is short.
+                    end = row_bytes * rows
+                    if end > buf_len:
+                        end = (buf_len // row_bytes) * row_bytes
+                    chunks.append(bytes(bits[:end]))
+                    continue
+
+                # Strided/padded: copy row_bytes from each stride-length row,
+                # dropping the padding.  Per-row guard is defense-in-depth.
+                out = bytearray(row_bytes * rows)
+                src = 0
+                dst = 0
+                for _ in range(rows):
+                    if src + row_bytes > buf_len:
+                        break
+                    out[dst:dst + row_bytes] = bits[src:src + row_bytes]
+                    src += stride
+                    dst += row_bytes
+                chunks.append(bytes(out[:dst]))
         finally:
             frame.unmap()
 
@@ -682,6 +727,29 @@ class QtCameraSession(QObject):
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+def _plane_geometry(fmt, w: int, h: int):
+    """Return [(packed_row_bytes, rows), ...] per plane: the TIGHT (unpadded)
+    bytes-per-row and row count ffmpeg rawvideo expects, derived from the pixel
+    format + frame geometry — NEVER from mappedBytes(), which the v4l2/FFmpeg
+    backend can over-report (→ over-read → SIGSEGV).  Returns None for
+    compressed/unknown formats (e.g. Jpeg), where there is no strided plane
+    layout to pack and the whole declared buffer is copied instead."""
+    pf = QVideoFrameFormat.PixelFormat
+    cw = (w + 1) // 2          # 4:2:0 / 4:2:2 chroma width (ceil, matches libav)
+    ch = (h + 1) // 2          # 4:2:0 chroma height (ceil)
+    if fmt in (pf.Format_YUV420P, pf.Format_YV12):
+        return [(w, h), (cw, ch), (cw, ch)]        # Y, U, V  (1 byte/sample)
+    if fmt in (pf.Format_NV12, pf.Format_NV21):
+        return [(w, h), (cw * 2, ch)]              # Y, interleaved UV (2 B/chroma col)
+    if fmt in (pf.Format_YUYV, pf.Format_UYVY):
+        return [(w * 2, h)]                        # packed 4:2:2, 2 bytes/pixel
+    if fmt in (pf.Format_BGRA8888, pf.Format_BGRX8888,
+               pf.Format_ARGB8888, pf.Format_XRGB8888,
+               pf.Format_RGBA8888, pf.Format_RGBX8888):
+        return [(w * 4, h)]                        # 32-bpp packed
+    return None                                    # Jpeg / unknown → full-buffer fallback
+
 
 def _qt_pix_to_ffmpeg(fmt) -> str | None:
     """Map common QVideoFrameFormat.PixelFormat values to ffmpeg pixel
