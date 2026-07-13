@@ -34,6 +34,12 @@ LOGGER = logging.getLogger(__name__)
 # scripts/install_deps.sh: video_nr=10, card_label=MirrorPreview).
 _LOOPBACK_DEVICE = "/dev/video10"
 
+# The IMX415's only sensor mode is 3864x2192 @ 15 fps (the ISP downscales the
+# resolution but not the readout rate).  Requesting more just makes rpicam pace
+# to the sensor anyway and can slow startup, so the CSI loopback caps to this
+# regardless of the camera_fps setting.
+_PI_CSI_MAX_FPS = 15
+
 
 @lru_cache(maxsize=1)
 def _is_pi5() -> bool:
@@ -477,6 +483,7 @@ class RaspberryPiLoopbackAdapter(BaseCameraAdapter):
                       mirror_flip: bool = False,
                       mirror_orientation_degrees: int = 0) -> CameraPreview:
         self.stop(discard=True)
+        fps = min(fps, _PI_CSI_MAX_FPS)
         self._start_feeder(width, height, fps)
         self._session.start_preview(
             device_hint=self._device, width=width, height=height, fps=fps,
@@ -493,6 +500,7 @@ class RaspberryPiLoopbackAdapter(BaseCameraAdapter):
                         mirror_flip: bool = False,
                         mirror_orientation_degrees: int = 0) -> CameraPreview:
         self.stop(discard=True)
+        fps = min(fps, _PI_CSI_MAX_FPS)
         self._start_feeder(width, height, fps)
         cap_path = work_dir / f"capture_picsi_{id(self):x}.mp4"
         self._session.start_recording(
