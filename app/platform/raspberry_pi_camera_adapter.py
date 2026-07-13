@@ -237,6 +237,7 @@ def _rpicam_cmd(width: int, height: int, fps: int, bitrate: int) -> list[str]:
         "--width", str(width),
         "--height", str(height),
         "--framerate", str(fps),
+        "--denoise", "cdn_off",
         "--codec", "h264",
     ]
 
@@ -385,16 +386,26 @@ class LoopbackFeeder:
         rpicam = [
             "rpicam-vid", "--nopreview", "--timeout", "86400000",
             "--width", str(width), "--height", str(height),
-            "--framerate", str(fps), "--codec", "yuv420", "-o", "-",
+            "--framerate", str(fps),
+            # Colour denoise costs ISP throughput and is unnecessary for the
+            # live mirror. Four buffers are enough to keep 4K30 flowing while
+            # avoiding the deeper six-buffer default video queue.
+            "--denoise", "cdn_off", "--buffer-count", "4",
+            "--codec", "yuv420", "-o", "-",
         ]
         ffmpeg = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
             # Avoid an input queue: back-pressure is preferable to rendering
             # stale frames after a transient load spike.
             "-fflags", "nobuffer", "-flags", "low_delay",
+            "-avioflags", "direct",
+            "-probesize", "32", "-analyzeduration", "0",
+            "-use_wallclock_as_timestamps", "1",
             "-f", "rawvideo", "-pix_fmt", "yuv420p",
             "-s", f"{width}x{height}", "-r", str(fps), "-i", "pipe:0",
             "-c:v", "rawvideo", "-flush_packets", "1",
+            # Never duplicate frames or pace an old backlog to the loopback.
+            "-fps_mode", "passthrough",
             "-f", "v4l2", "-pix_fmt", "yuv420p", self._device,
         ]
         LOGGER.info("Starting Pi camera → %s loopback feeder (%dx%d@%d)",
