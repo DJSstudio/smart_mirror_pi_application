@@ -13,9 +13,9 @@ _DEFAULTS: dict[str, Any] = {
     # Camera
     "camera_backend": "auto",   # "auto" | "raspberry_pi" | "usb"
     "camera_device": "",        # explicit /dev/videoN path (empty = auto)
-    "camera_width": 3840,       # 4K UHD (Pi 5 encodes H.264 in software — 4K is
-    "camera_height": 2160,      # heavy; expect ~15fps, 30 may drop frames)
-    "camera_fps": 30,
+    "camera_width": 3840,       # 4K UHD @ 15fps: the Pi 5 encodes H.264 in
+    "camera_height": 2160,      # software, so 4K@30 pegs the CPU/adds lag; 15fps
+    "camera_fps": 15,           # halves the load for a much snappier mirror.
     "camera_bitrate": 15_000_000,
     # Recording
     "countdown_seconds": 3,

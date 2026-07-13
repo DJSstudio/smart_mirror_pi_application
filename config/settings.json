@@ -3,7 +3,7 @@
   "camera_device": "",
   "camera_width": 3840,
   "camera_height": 2160,
-  "camera_fps": 30,
+  "camera_fps": 15,
   "camera_bitrate": 15000000,
   "countdown_seconds": 3,
   "mirror_orientation_degrees": 0,
