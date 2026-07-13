@@ -34,11 +34,11 @@ LOGGER = logging.getLogger(__name__)
 # scripts/install_deps.sh: video_nr=10, card_label=MirrorPreview).
 _LOOPBACK_DEVICE = "/dev/video10"
 
-# The IMX415's only sensor mode is 3864x2192 @ 15 fps (the ISP downscales the
-# resolution but not the readout rate).  Requesting more just makes rpicam pace
-# to the sensor anyway and can slow startup, so the CSI loopback caps to this
-# regardless of the camera_fps setting.
-_PI_CSI_MAX_FPS = 15
+# Ceiling for the CSI loopback fps.  The IMX415 does 15fps in 2-lane mode or
+# 30fps in 4-lane mode (dtoverlay=imx415,4lane,clk-37125); it can't do the 60 in
+# the default camera_fps setting, and over-requesting just paces to the sensor
+# and slows startup.  30 matches the 4-lane config; drop to 15 if running 2-lane.
+_PI_CSI_MAX_FPS = 30
 
 
 @lru_cache(maxsize=1)
@@ -462,12 +462,29 @@ class RaspberryPiLoopbackAdapter(BaseCameraAdapter):
         self._capture_path: Path | None = None
 
     def is_available(self) -> bool:
-        return (
-            self._session is not None
-            and Path(self._device).exists()
-            and shutil.which("rpicam-vid") is not None
-            and shutil.which("ffmpeg") is not None
-        )
+        if (self._session is None
+                or not Path(self._device).exists()
+                or shutil.which("rpicam-vid") is None
+                or shutil.which("ffmpeg") is None):
+            return False
+        # CRUCIAL: Qt must ALREADY enumerate the loopback as a camera, or the
+        # QtCameraSession can't open it.  Qt's QMediaDevices list is fixed at
+        # startup and does NOT refresh when a device gains capture caps later —
+        # which is exactly what /dev/video10 does under exclusive_caps=1 (it only
+        # looks like a camera while a producer is attached, i.e. after startup).
+        # If Qt doesn't see it now, DON'T claim this backend: CameraService then
+        # falls back to the working UDP MPEG-TS Pi adapter instead of failing
+        # with a broken camera.  (To enable this low-latency path, load
+        # v4l2loopback with exclusive_caps=0 so Qt sees it at startup.)
+        try:
+            from PySide6.QtMultimedia import QMediaDevices  # noqa: PLC0415
+            want = self._device.encode()
+            for dev in QMediaDevices.videoInputs():
+                if dev.id() == want or "MirrorPreview" in dev.description():
+                    return True
+        except Exception:  # noqa: BLE001
+            return False
+        return False
 
     def _start_feeder(self, width: int, height: int, fps: int) -> None:
         self._feeder.start(width, height, fps)
