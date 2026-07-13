@@ -416,9 +416,14 @@ class LoopbackFeeder:
         _drain(self._rpicam.stderr, "loopback-rpicam")
         _drain(self._ffmpeg.stderr, "loopback-ffmpeg")
 
-    def wait_ready(self, timeout: float = 8.0) -> bool:
-        """Block until Qt can see the loopback device — it enumerates only once
-        ffmpeg has negotiated its format.
+    def wait_ready(self, width: int, height: int, timeout: float = 8.0) -> bool:
+        """Block until the loopback has the requested format and Qt can see it.
+
+        With ``exclusive_caps=0`` the node is visible before a producer opens
+        it.  Device visibility alone therefore does not mean it is ready: if
+        QCamera opens that unconfigured node it remains active but delivers
+        black frames.  Poll V4L2 until ffmpeg has committed the requested
+        format, then let Qt refresh its device description.
 
         Runs on the GUI thread during the camera warm-up window.  CRUCIAL:
         QMediaDevices refreshes its device list THROUGH the Qt event loop, so we
@@ -437,8 +442,11 @@ class LoopbackFeeder:
                 LOGGER.warning("Loopback feeder ffmpeg exited before the device was ready")
                 return False
             QCoreApplication.processEvents(flags, 100)  # let QMediaDevices update
+            format_ready = self._format_is_ready(width, height)
             for dev in QMediaDevices.videoInputs():
-                if dev.id() == want or "MirrorPreview" in dev.description():
+                if format_ready and (
+                    dev.id() == want or "MirrorPreview" in dev.description()
+                ):
                     LOGGER.info("Loopback device %s ready", self._device)
                     return True
             time.sleep(0.1)
@@ -448,6 +456,26 @@ class LoopbackFeeder:
             self._device, timeout, seen or "(no video inputs)",
         )
         return False
+
+    def _format_is_ready(self, width: int, height: int) -> bool:
+        """Return True after ffmpeg has configured the V4L2 output format."""
+        v4l2_ctl = shutil.which("v4l2-ctl")
+        if v4l2_ctl is None:
+            # install_deps.sh installs v4l-utils. Keep a conservative fallback
+            # for hand-built systems rather than opening the device instantly.
+            return self._ffmpeg is not None and self._ffmpeg.poll() is None
+        try:
+            result = subprocess.run(
+                [v4l2_ctl, "--device", self._device, "--get-fmt-video"],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        output = f"{result.stdout}\n{result.stderr}"
+        dimensions = f"{width}/{height}"
+        return result.returncode == 0 and dimensions in output and "YU12" in output
 
     def is_alive(self) -> bool:
         return (self._rpicam is not None and self._rpicam.poll() is None
@@ -504,7 +532,7 @@ class RaspberryPiLoopbackAdapter(BaseCameraAdapter):
 
     def _start_feeder(self, width: int, height: int, fps: int) -> None:
         self._feeder.start(width, height, fps)
-        if not self._feeder.wait_ready():
+        if not self._feeder.wait_ready(width, height):
             self._feeder.stop()
             raise RuntimeError(
                 f"Pi camera loopback ({self._device}) did not become ready. "

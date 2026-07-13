@@ -681,7 +681,14 @@ class QtCameraSession(QObject):
                     return dev
             return None
 
-        cameras = list(self._cached_devices) or list(QMediaDevices.videoInputs())
+        # Prefer a fresh description for an explicitly requested device. This
+        # matters for v4l2loopback: the startup-cached QCameraDevice was created
+        # before the producer assigned its resolution/pixel format.
+        fresh = list(QMediaDevices.videoInputs())
+        match = _match(fresh)
+        if match is not None:
+            return match
+        cameras = list(self._cached_devices) or fresh
         match = _match(cameras)
         if match is not None:
             return match
