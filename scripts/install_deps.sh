@@ -143,6 +143,25 @@ sudo modprobe -r v4l2loopback 2>/dev/null || true
 sudo modprobe v4l2loopback video_nr=10 card_label=MirrorPreview exclusive_caps=0
 echo "  v4l2loopback loaded (exclusive_caps=0); /dev/video10 is the preview pipe."
 
+# Let the launcher (run_dev.sh / run.sh → setup_loopback.sh) load + pin the
+# loopback WITHOUT a password prompt — required so the systemd --user service
+# can do it at boot and so the operator only ever runs the launcher.  Scoped to
+# exactly these commands.
+echo "--- Enabling password-less loopback setup for the launcher ---"
+MODPROBE_BIN="$(command -v modprobe || echo /usr/sbin/modprobe)"
+V4L2CTL_BIN="$(command -v v4l2loopback-ctl || echo /usr/bin/v4l2loopback-ctl)"
+SUDOERS=/etc/sudoers.d/smart-mirror-loopback
+sudo tee "$SUDOERS" >/dev/null <<EOF
+${USER} ALL=(root) NOPASSWD: ${MODPROBE_BIN} v4l2loopback *, ${MODPROBE_BIN} -r v4l2loopback, ${V4L2CTL_BIN} set-caps *
+EOF
+sudo chmod 0440 "$SUDOERS"
+if sudo visudo -cf "$SUDOERS" >/dev/null 2>&1; then
+    echo "  password-less loopback setup enabled"
+else
+    echo "  WARNING: sudoers entry invalid — removing (launcher may prompt for sudo)"
+    sudo rm -f "$SUDOERS"
+fi
+
 echo ""
 echo "=== Done! ==="
 echo "  Run the app:  bash scripts/run_dev.sh"

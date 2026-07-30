@@ -72,4 +72,11 @@ if [ "${QT_QPA_PLATFORM}" = "eglfs" ] && [ -z "${QT_QPA_EVDEV_TOUCHSCREEN_PARAME
     done
 fi
 
+# ── v4l2loopback preview device (Pi CSI low-latency path) ──────────────────
+# Ensure /dev/video10 exists and is pinned to the configured resolution, so the
+# operator never has to run modprobe / set-caps by hand.  Non-fatal: on failure
+# the app falls back to the (laggy) UDP preview path.
+echo "Ensuring camera loopback device…"
+bash "${SCRIPT_DIR}/setup_loopback.sh" || true
+
 exec "${PYTHON}" -m app.main "$@"

@@ -54,4 +54,8 @@ export GST_PLUGIN_FEATURE_RANK="${GST_PLUGIN_FEATURE_RANK:-avdec_h264:256,v4l2h2
 
 export PYTHONUNBUFFERED=1
 
+# Ensure /dev/video10 exists and is pinned to the configured resolution before
+# the app opens the camera (non-fatal; app falls back to UDP preview otherwise).
+bash "${SCRIPT_DIR}/setup_loopback.sh" || true
+
 exec "${PYTHON}" -m app.main "$@"
